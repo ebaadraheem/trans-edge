@@ -1,0 +1,3 @@
+# --- Web Server & Monitoring ---
+flask==3.0.3
+psutil==5.9.8

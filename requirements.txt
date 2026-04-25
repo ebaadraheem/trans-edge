@@ -1,0 +1,12 @@
+# --- Orchestration & Simulation ---
+simpy==4.1.1
+docker==7.0.0
+requests==2.31.0
+
+# --- Profiling & Data Management ---
+pandas==2.2.1
+numpy==1.26.4
+
+# --- Deep Learning ---
+torch==2.2.1
+torchvision==0.17.1
