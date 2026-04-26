@@ -203,10 +203,19 @@ class ModelPartitioner:
     ) -> List[float]:
         """
         Map node capability fractions onto per-partition FLOPs targets.
-        If num_partitions > len(nodes), excess partitions split the heaviest
-        node's share uniformly.
+        If num_partitions < len(nodes), normalize the top fractions to sum to 1.0.
         """
         total = self._total_flops()
+        
+        # FIX 1: Normalize fractions if there are more nodes than partitions
+        if len(fractions) > num_partitions:
+            sub_fractions = fractions[:num_partitions]
+            norm_factor = sum(sub_fractions)
+            if norm_factor > 0:
+                fractions = [f / norm_factor for f in sub_fractions]
+            else:
+                fractions = [1.0 / num_partitions] * num_partitions
+                
         n_nodes = len(fractions)
         targets: List[float] = []
 
@@ -366,36 +375,62 @@ class ModelPartitioner:
 
 def build_default_nodes() -> List[NodeProfile]:
     """
-    Three heterogeneous edge nodes matching the CarbonEdge paper's setup but
-    mapped to realistic regional carbon intensities:
-      • UK   ≈ 233 gCO₂/kWh  (National Grid ESO, 2024 avg)
-      • USA  ≈ 386 gCO₂/kWh  (EPA eGRID 2022 national avg)
-      • SE   ≈  13 gCO₂/kWh  (Sweden, largely nuclear + hydro)
+     six diverse nodes with following characteristics:
+    - node-1: Deep Edge (Highway) — low capability, high carbon, 4G
+    - node-2: Urban Edge (Lahore 5G) — medium capability, medium carbon, 5G
+    - node-3: Smart City Edge (Gujranwala Wi-Fi) — medium capability, medium carbon, Wi-Fi
+    - node-4: Regional Datacenter (Islamabad) — high capability, medium carbon, Fiber
+    - node-5: Standard Cloud (AWS) — very high capability, lower carbon, Fiber
+    - node-6: Green Cloud (Sweden) — very high capability, very low carbon, Fiber
     """
     return [
         NodeProfile(
-            name="node-uk",
-            cpu_cores=1.0,
+            name="node-1", # Deep Edge (Highway)
+            cpu_cores=0.3, # 30000 quota
+            ram_gb=0.512,
+            carbon_intensity_gco2_kwh=650.0,
+            avg_power_w=5.0,
+            network_type="4g_lte",
+        ),
+        NodeProfile(
+            name="node-2", # Urban Edge (Lahore 5G)
+            cpu_cores=0.4, # 40000 quota
+            ram_gb=0.512,
+            carbon_intensity_gco2_kwh=600.0,
+            avg_power_w=8.0,
+            network_type="5g",
+        ),
+        NodeProfile(
+            name="node-3", # Smart City Edge (Gujranwala Wi-Fi)
+            cpu_cores=0.4, # 40000 quota
+            ram_gb=0.512,
+            carbon_intensity_gco2_kwh=550.0,
+            avg_power_w=8.0,
+            network_type="wifi",
+        ),
+        NodeProfile(
+            name="node-4", # Regional Datacenter (Islamabad)
+            cpu_cores=0.6, # 60000 quota
             ram_gb=1.0,
-            carbon_intensity_gco2_kwh=233.0,
-            avg_power_w=20.0,
-            network_type="Fiber",
-        ),
-        NodeProfile(
-            name="node-usa",
-            cpu_cores=0.6,
-            ram_gb=0.5,
-            carbon_intensity_gco2_kwh=386.0,
+            carbon_intensity_gco2_kwh=400.0,
             avg_power_w=15.0,
-            network_type="5G",
+            network_type="fiber",
         ),
         NodeProfile(
-            name="node-se",
-            cpu_cores=0.4,
-            ram_gb=0.5,
-            carbon_intensity_gco2_kwh=13.0,
-            avg_power_w=10.0,
-            network_type="Fiber",
+            name="node-5", # Standard Cloud (AWS)
+            cpu_cores=1.0, # 100000 quota
+            ram_gb=2.0,
+            carbon_intensity_gco2_kwh=380.0,
+            avg_power_w=25.0,
+            network_type="fiber",
+        ),
+        NodeProfile(
+            name="node-6", # Green Cloud (Sweden)
+            cpu_cores=1.0, # 100000 quota
+            ram_gb=2.0,
+            carbon_intensity_gco2_kwh=15.0,
+            avg_power_w=25.0,
+            network_type="fiber",
         ),
     ]
 
@@ -407,7 +442,8 @@ def build_default_nodes() -> List[NodeProfile]:
 if __name__ == "__main__":
     nodes      = build_default_nodes()
     partitioner = ModelPartitioner()
-    parts       = partitioner.partition(nodes, num_partitions=3)
+    rep_nodes = [nodes[0], nodes[3], nodes[5]]
+    parts       = partitioner.partition(rep_nodes, num_partitions=3)
 
     print("\nDetailed partition report:")
     for p in parts:

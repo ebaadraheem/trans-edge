@@ -70,7 +70,7 @@ class ContainerConfig:
 
     @property
     def cpu_quota(self) -> int:
-        """cgroups cpu_quota = cpu_cores × cpu_period (microseconds)."""
+        """cgroups cpu_quota = cpu_cores x cpu_period (microseconds)."""
         return int(self.cpu_cores * CPU_PERIOD_US)
 
     @property
@@ -93,7 +93,7 @@ def node_profile_to_config(np, base_port: int = 5100) -> ContainerConfig:
     ram_gb   = getattr(np, "ram_gb",    np["ram_gb"])    if not hasattr(np, "ram_gb")    else np.ram_gb
     net_type = getattr(np, "network_type", "Fiber")
 
-    # Derive host port from node index embedded in the name (heuristic)
+    # Derive host port from node index embedded in the name (e.g. "node0" → base_port + 0)
     import re
     idx_match = re.search(r"\d+$", name)
     idx       = int(idx_match.group()) if idx_match else 0
@@ -136,7 +136,7 @@ class DockerNodeManager:
         self._image        = image
         self._network_name = network_name
         self._dry_run      = dry_run or not DOCKER_AVAILABLE
-        self._containers: Dict[str, object] = {}   # name → docker.Container
+        self._containers: Dict[str, object] = {} # node_name → Container object or placeholder
 
         if not self._dry_run:
             try:
@@ -226,7 +226,7 @@ class DockerNodeManager:
             log.error("[docker] Inference failed on %s: %s", node_name, exc)
             return {
                 "node":         node_name,
-                "partition_id": partition_id,
+                "partition_id": partition.partition_id,
                 "latency_ms":   latency_ms,
                 "success":      False,
                 "error":        str(exc),

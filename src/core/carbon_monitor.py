@@ -13,11 +13,13 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Network transfer energy coefficients (kWh per GB)
 # ---------------------------------------------------------------------------
-TRANSFER_ENERGY_KWH_PER_GB: Dict[str, float] = {
-    "5G":    0.12,
-    "Fiber": 0.02,
-    "default": 0.05,
-}
+TRANSFER_ENERGY_KWH_PER_GB = {
+        "4g_lte": 0.14,
+        "5g": 0.08,
+        "wifi": 0.08,
+        "fiber": 0.04,
+        "default": 0.05,
+    }
 
 # ---------------------------------------------------------------------------
 # Electricity Maps API
@@ -37,6 +39,7 @@ STATIC_FALLBACK_CI: Dict[str, float] = {
     "node-usa": 386.0,   # EPA eGRID 2022 national average
     "node-se":   13.0,   # Energimyndigheten 2023
 }
+
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +99,7 @@ class NodeCarbonState:
         """
         t = exec_time_ms if exec_time_ms is not None else self.avg_exec_time_ms
         return self._compute_energy(t)
-
+    
     def transfer_carbon(self, size_mb: float) -> float:
         """
         Carbon (gCO₂) to transfer *size_mb* megabytes over this node's link.

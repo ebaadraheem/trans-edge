@@ -7,6 +7,8 @@ from pathlib import Path
 def generate_profile():
     print("Loading PyTorch ResNet-50...")
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    # use MobileNetV2 for faster inference during testing
+    # model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
     model.eval()
 
     records = []

@@ -1,5 +1,5 @@
 """
-experiments/main_simulation.py
+experiments/docker_simulation.py
 --------------------------------
 Entry point for the CarbonEdge SimPy simulation.
 
@@ -10,13 +10,13 @@ CarbonEdge paper's Table II experiment.
 Usage
 -----
     # From the project root:
-    PYTHONPATH=. python experiments/main_simulation.py
+    PYTHONPATH=. python experiments/docker_simulation.py
 
     # With a real Electricity Maps API key:
-    ELECTRICITY_MAPS_API_KEY=<your-key> PYTHONPATH=. python experiments/main_simulation.py
+    ELECTRICITY_MAPS_API_KEY=<your-key> PYTHONPATH=. python experiments/docker_simulation.py
 
     # Fast smoke-test (10 requests):
-    PYTHONPATH=. python experiments/main_simulation.py --quick
+    PYTHONPATH=. python experiments/docker_simulation.py --quick
 
 CLI flags
 ---------
@@ -26,17 +26,15 @@ CLI flags
 --seed S      : RNG seed (default 42)
 --results DIR : Output directory for CSV files (default ./results)
 --mode M      : Run only one mode (performance|balanced|green|tans_green)
+--docker      : Run real PyTorch containers
 """
 
 from __future__ import annotations
-
 import argparse
 import logging
 import sys
 import time
 from pathlib import Path
-
-# Ensure project root is on the path when run directly
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from src.core.execution_engine import CarbonEdgeEngine, SimConfig
@@ -45,7 +43,7 @@ from src.core.task_scheduler import SchedulingMode
 from src.utils.metrics_logger import RunSummary, compare_runs
 from src.utils.docker_manager import DockerNodeManager, node_profile_to_config
 
-log = logging.getLogger("main_simulation")
+log = logging.getLogger("docker_simulation")
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +57,6 @@ def get_nodes() -> list[NodeProfile]:
     mapped to realistic national grid intensities.
     """
     return build_default_nodes()
-
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -96,7 +93,7 @@ def run_mode(
     seed: int,
     results_dir: Path,
     ms_per_100_mflops: float = 25.0,
-    use_docker: bool = False, # <--- ADD THIS PARAMETER
+    use_docker: bool = False,
 ) -> RunSummary:
     """Run one complete simulation for *mode*."""
     run_id = f"{mode.value}"
@@ -114,7 +111,7 @@ def run_mode(
     log.info("  Mode: %-20s  requests=%d", mode.value.upper(), num_requests)
     log.info("=" * 55)
 
-    # --- START DOCKER IF ENABLED ---
+    # --- START DOCKER ---
     docker_mgr = None
     if use_docker:
         configs = [node_profile_to_config(n, base_port=5100 + i) for i, n in enumerate(nodes)]
@@ -129,7 +126,7 @@ def run_mode(
     logger = engine.run()
     elapsed = time.perf_counter() - t0
     
-    # --- STOP DOCKER IF ENABLED ---
+    # --- STOP DOCKER ---
     if use_docker:
         docker_mgr.stop_all()
     # ------------------------------
@@ -216,7 +213,7 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     num_requests = 10 if args.quick else args.requests
-    ms_calib     = 5.0 if args.quick else 25.0   # fast for smoke test
+    ms_calib     = 5.0 if args.quick else 25.0  
 
     if args.mode:
         modes = [SchedulingMode(args.mode)]

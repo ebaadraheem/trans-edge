@@ -133,7 +133,7 @@ class CarbonEdgeEngine:
         # Partition the model once (static graph; could be re-partitioned
         # dynamically on node join/leave events)
         self._partitions: List[Partition] = self._partitioner.partition(
-            nodes, num_partitions=len(nodes)
+            nodes, num_partitions=3
         )
 
         # SimPy environment + per-node resource pools
@@ -219,7 +219,7 @@ class CarbonEdgeEngine:
             1. TANS selects a node.
             2. Acquire the node's SimPy Resource (concurrency control).
             3. Execute inference (SimPy Timeout OR real Docker call).
-            4. Account for inter-partition transfer latency.
+            4. Account for inter-partition transfer latency (aware of co-location).
             5. Record carbon, energy, metrics.
         """
         t_pipeline_start = self._env.now
@@ -231,7 +231,8 @@ class CarbonEdgeEngine:
         decisions = self._scheduler.schedule(req.partitions)
         sched_oh_ms = (time.perf_counter() - sched_t0) * 1000
 
-        for part, decision in zip(req.partitions, decisions):
+        # We use enumerate here to allow looking ahead to the next decision
+        for i, (part, decision) in enumerate(zip(req.partitions, decisions)):
             node_name = decision.selected_node
             pool      = self._pools[node_name]
             node_prof = next(n for n in self._nodes if n.name == node_name)
@@ -255,7 +256,17 @@ class CarbonEdgeEngine:
                 c_comp  = e_comp * ci
 
                 # ---- inter-partition transfer ----
-                xfer_mb    = part.output_tensor_size_mb
+                # FIX 2: Check if next partition is on the SAME node (Co-location)
+                is_colocated = False
+                if i + 1 < len(decisions):
+                    next_node = decisions[i + 1].selected_node
+                    if next_node == node_name:
+                        is_colocated = True
+
+                # If co-located, the tensor doesn't move over the network
+                xfer_mb    = part.output_tensor_size_mb if not is_colocated else 0.0
+                
+                # Calculate delays and carbon based on the adjusted transfer size
                 xfer_ms    = self._transfer_latency_ms(xfer_mb, node_prof)
                 c_trans    = self._monitor.estimate_transfer_carbon(node_name, xfer_mb)
                 e_trans_kwh = (xfer_mb / 1024.0) * self._transfer_coeff(node_prof)
@@ -319,7 +330,7 @@ class CarbonEdgeEngine:
 
         # Re-partition the model to include the new node
         self._partitions = self._partitioner.partition(
-            self._nodes, num_partitions=len(self._nodes)
+            self._nodes, num_partitions=3
         )
         log.info("[engine] Node %r added; model re-partitioned.", node.name)
 
@@ -340,7 +351,7 @@ class CarbonEdgeEngine:
 
         if len(self._nodes) > 0:
             self._partitions = self._partitioner.partition(
-                self._nodes, num_partitions=len(self._nodes)
+                self._nodes, num_partitions=3
             )
         log.info("[engine] Node %r removed; model re-partitioned.", node_name)
 

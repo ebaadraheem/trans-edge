@@ -255,28 +255,12 @@ class TANSScheduler:
         cpu_req: float = 0.1,
         mem_req_gb: float = 0.05,
     ) -> List[SchedulingDecision]:
-        """
-        Assign each partition in *partitions* to the best available node.
-
-        The partition order is respected (pipeline execution: 0 → 1 → 2 …).
-        The transfer_size between consecutive partitions drives the TANS score.
-
-        Parameters
-        ----------
-        partitions  : Ordered list from ModelPartitioner.partition().
-        cpu_req     : Minimum CPU fraction required per task.
-        mem_req_gb  : Minimum RAM required per task (GB).
-
-        Returns
-        -------
-        List of SchedulingDecision, one per partition.
-        """
         decisions: List[SchedulingDecision] = []
         t_start = time.perf_counter()
 
+        prev_node_name = None  # FIX 3: Track the sender node
+
         for idx, part in enumerate(partitions):
-            # Transfer size = bytes travelling *into* this node from prev node
-            # (= output_size of the *previous* partition's activation tensor)
             if idx == 0:
                 incoming_mb = 0.0
             else:
@@ -285,11 +269,13 @@ class TANSScheduler:
             decision = self._select_node(
                 partition=part,
                 incoming_transfer_mb=incoming_mb,
+                prev_node_name=prev_node_name, # Pass it to the selector
                 cpu_req=cpu_req,
                 mem_req_gb=mem_req_gb,
             )
             decisions.append(decision)
             self._live[decision.selected_node].mark_scheduled()
+            prev_node_name = decision.selected_node # Update for next iteration
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000
         self._scheduling_overhead_ms.append(elapsed_ms)
@@ -340,17 +326,11 @@ class TANSScheduler:
         self,
         partition: Partition,
         incoming_transfer_mb: float,
+        prev_node_name: Optional[str],
         cpu_req: float,
         mem_req_gb: float,
     ) -> SchedulingDecision:
-        """
-        Algorithm 1 (TANS extension of AMP4EC NSA).
 
-        Skips overloaded / high-latency nodes.
-        Scores eligible nodes on five components.
-        Returns a SchedulingDecision for the top-scoring node.
-        Raises RuntimeError if no node is eligible (cluster saturated).
-        """
         w = self._weights
         best_score = -math.inf
         best_node  = None
@@ -361,52 +341,65 @@ class TANSScheduler:
             live   = self._live[node_name]
             carbon = self._monitor.nodes[node_name]
 
-            # --- hard filters (Algorithm 1, lines 4–9) ---
-            if live.current_load > self.LOAD_THRESHOLD:
-                log.debug("[tans] Skip %s: overloaded (%.2f)", node_name, live.current_load)
-                continue
-            if live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
-                log.debug("[tans] Skip %s: high latency (%.1f ms)",
-                          node_name, live.net_latency_ms)
+            # FIX 2 (Scheduler side): If co-located, incoming transfer is 0
+            actual_transfer_mb = incoming_transfer_mb if node_name != prev_node_name else 0.0
+
+            # FIX 3: Transfer relies on the SENDER'S network (the previous node)
+            if prev_node_name and actual_transfer_mb > 0:
+                prev_node = self._nodes[prev_node_name]
+                net_type = getattr(prev_node, 'network_type', 'default').lower()
+                sender_ci = self._monitor.nodes[prev_node_name].carbon_intensity_gco2_kwh
+            else:
+                net_type = getattr(node, 'network_type', 'default').lower()
+                sender_ci = carbon.carbon_intensity_gco2_kwh
+            
+            # Align perfectly with the Execution Engine's math
+            mbps = 100.0 if net_type in ["5g", "4g_lte"] else 500.0
+            transfer_delay_ms = ((actual_transfer_mb * 8.0) / mbps) * 1000.0
+
+            # FIX 5: Remove transfer_delay_ms from the hard filter. 
+            # Only filter based on base node health so 4G/5G nodes aren't instantly skipped.
+            if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
                 continue
 
-            # Simple resource sufficiency check
+            # Resource sufficiency check
             cpu_avail = node.cpu_cores * (1.0 - live.current_load)
             mem_avail = node.ram_gb    * (1.0 - live.current_load)
             if cpu_avail < cpu_req or mem_avail < mem_req_gb:
-                log.debug("[tans] Skip %s: insufficient resources", node_name)
                 continue
 
-            # --- score components ---
             sR = _score_resource(node, live, cpu_req, mem_req_gb)
             sL = _score_load(live)
-            sP = _score_performance(live)
+            
+            # Use transfer_delay_ms for the performance score (Transfer-Aware)
+            sP = 1.0 / (1.0 + (transfer_delay_ms + live.avg_exec_time()) / 100.0)
             sB = _score_balance(live)
-            sC = _score_carbon_tans(node, carbon, incoming_transfer_mb)
+            
+            perceived_transfer = actual_transfer_mb if self._mode == SchedulingMode.TANS_GREEN else 0.0
+
+            # FIX 4: Equation Mismatch in TANS Carbon Score
+            # Total_Carbon = (E_comp × CI_local) + (E_trans × CI_network)
+            e_comp = carbon.estimate_inference_energy()
+            energy_per_gb = TRANSFER_ENERGY_KWH_PER_GB.get(net_type, TRANSFER_ENERGY_KWH_PER_GB["default"])
+            e_trans = (perceived_transfer / 1024.0) * energy_per_gb
+            
+            total_carbon_eval = (e_comp * carbon.carbon_intensity_gco2_kwh) + (e_trans * sender_ci)
+            
+            # TANS Carbon Score
+            sC = 1.0 / (1.0 + total_carbon_eval)
 
             total = w.wR*sR + w.wL*sL + w.wP*sP + w.wB*sB + w.wC*sC
-
-            log.debug(
-                "[tans] %s → sR=%.3f sL=%.3f sP=%.3f sB=%.3f sC=%.3f → %.4f",
-                node_name, sR, sL, sP, sB, sC, total,
-            )
 
             if total > best_score:
                 best_score = total
                 best_node  = node_name
                 best_comps = {"sR": sR, "sL": sL, "sP": sP, "sB": sB, "sC": sC}
-                # estimated carbon for this partition
-                e_comp  = carbon.estimate_inference_energy()
-                e_trans = (incoming_transfer_mb / 1024.0) * TRANSFER_ENERGY_KWH_PER_GB.get(
-                    node.network_type, TRANSFER_ENERGY_KWH_PER_GB["default"]
-                )
-                best_carbon = (e_comp + e_trans) * carbon.carbon_intensity_gco2_kwh
+                
+                # Actual carbon estimation for reporting
+                best_carbon = (e_comp * carbon.carbon_intensity_gco2_kwh) + ((actual_transfer_mb / 1024.0) * energy_per_gb * sender_ci)
 
         if best_node is None:
-            # Last-resort: pick the least-loaded node
             best_node = min(self._live, key=lambda n: self._live[n].current_load)
-            log.warning("[tans] All nodes filtered; falling back to %s", best_node)
-            best_comps = {}
             best_score = 0.0
 
         return SchedulingDecision(
@@ -418,7 +411,7 @@ class TANSScheduler:
             mode=self._mode.value,
         )
 
-
+    
 # ---------------------------------------------------------------------------
 # Quick self-test
 # ---------------------------------------------------------------------------
@@ -436,8 +429,8 @@ if __name__ == "__main__":
     partitioner = ModelPartitioner()
     monitor     = CarbonMonitor(node_profiles=nodes, refresh_interval_s=0)
     scheduler   = TANSScheduler(nodes, monitor, mode=SchedulingMode.TANS_GREEN)
-
-    parts = partitioner.partition(nodes, num_partitions=3)
+    rep_nodes = [nodes[0], nodes[3], nodes[5]]
+    parts = partitioner.partition(rep_nodes, num_partitions=3)
 
     print("=== TANS-Green Scheduling ===")
     for trial in range(5):

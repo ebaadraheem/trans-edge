@@ -20,6 +20,8 @@ app = Flask(__name__)
 # Global PyTorch Initialization
 log.info("Loading PyTorch ResNet-50...")
 _full_model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+# use MobileNetV2 for faster inference during testing
+# _full_model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
 _full_model.eval()
 
 # Flatten the model into a sequential list of leaf modules (matching the profiler logic)
