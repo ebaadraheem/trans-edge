@@ -196,16 +196,15 @@ class MetricsLogger:
 
         return rec
 
-    def finalize(self) -> RunSummary:
+    def finalize(self, sim_time_ms: float = 0.0) -> RunSummary:
         """
         Flush remaining records, write the summary row, close file handles.
-        Returns the RunSummary so the experiment script can print it.
         """
         with self._lock:
             self._flush_buffer()
             self._detail_file.close()
 
-        summary = self._build_summary()
+        summary = self._build_summary(sim_time_ms)
         self._write_summary(summary)
         log.info(
             "[metrics] Run %r done — %d inferences, %.6f gCO₂ total, "
@@ -256,7 +255,7 @@ class MetricsLogger:
         self._detail_file.flush()
         self._buffer.clear()
 
-    def _build_summary(self) -> RunSummary:
+    def _build_summary(self, sim_time_ms: float = 0.0) -> RunSummary:
         n = len(self._latencies)
         if n == 0:
             return RunSummary(
@@ -271,6 +270,14 @@ class MetricsLogger:
 
         sorted_lat = sorted(self._latencies)
         p95_idx    = max(0, int(0.95 * n) - 1)
+        
+        total_requests = n / 3.0 
+        
+        if sim_time_ms > 0:
+            sim_time_seconds = sim_time_ms / 1000.0
+            true_throughput_rps = total_requests / sim_time_seconds
+        else:
+            true_throughput_rps = sum(self._throughputs) / n if n > 0 else 0.0
 
         return RunSummary(
             run_id=               self._run_id,
@@ -280,8 +287,8 @@ class MetricsLogger:
             avg_latency_ms=       round(sum(self._latencies) / n, 4),
             p95_latency_ms=       round(sorted_lat[p95_idx], 4),
             max_latency_ms=       round(sorted_lat[-1], 4),
-            total_throughput_rps= round(sum(self._throughputs), 4),
-            avg_throughput_rps=   round(sum(self._throughputs) / n, 4),
+            total_throughput_rps= round(true_throughput_rps, 4), # Fixed
+            avg_throughput_rps=   round(true_throughput_rps, 4), # Fixed
             total_energy_kwh=     round(self._total_energy, 10),
             total_carbon_gco2=    round(self._cum_carbon, 10),
             carbon_efficiency=    round(n / self._cum_carbon, 4)

@@ -267,14 +267,27 @@ class ModelPartitioner:
 
     def _refine_boundaries(self, boundaries: List[int]) -> List[int]:
         """
-        Nudge boundaries left / right to minimise L (Eq. 5).
+        Nudge boundaries left / right to minimise Load Imbalance AND Transfer Penalty.
         Early-stops when no improvement is found.
         """
-        costs    = self._df["compute_cost_mflops"].tolist()
-        n_layers = len(costs)
-        best_L   = _load_balance_metric(
-            self._partition_costs(boundaries, costs)
-        )
+        costs        = self._df["compute_cost_mflops"].tolist()
+        output_sizes = self._df["output_size_mb"].tolist()  # Fetch output sizes
+        n_layers     = len(costs)
+
+        # NEW: Internal helper to evaluate the combined score of a boundary setup
+        def _evaluate_score(b_list: List[int]) -> float:
+            p_costs = self._partition_costs(b_list, costs)
+            L = _load_balance_metric(p_costs)
+            
+            # Calculate transfer penalty: sum of output_size_mb at each cut point.
+            # (b - 1) is used because 'boundaries' represents exclusive end indices.
+            transfer_penalty = sum(output_sizes[b - 1] for b in b_list[:-1])
+            
+            # Combine L and Transfer Penalty. 0.1 is a tunable weight factor.
+            return L + (0.1 * transfer_penalty)
+
+        # Start with the baseline score of the greedy algorithm
+        best_score = _evaluate_score(boundaries)
 
         for _ in range(self._max_iters):
             improved = False
@@ -290,12 +303,11 @@ class ModelPartitioner:
                         continue
 
                     new_b[i] = candidate
-                    new_L = _load_balance_metric(
-                        self._partition_costs(new_b, costs)
-                    )
-                    if new_L < best_L - 1e-6:
+                    new_score = _evaluate_score(new_b)
+                    
+                    if new_score < best_score - 1e-6:
                         boundaries = new_b
-                        best_L     = new_L
+                        best_score = new_score
                         improved   = True
                         break
                 if improved:
@@ -384,55 +396,13 @@ def build_default_nodes() -> List[NodeProfile]:
     - node-6: Green Cloud (Sweden) — very high capability, very low carbon, Fiber
     """
     return [
-        NodeProfile(
-            name="node-1", # Deep Edge (Highway)
-            cpu_cores=0.3, # 30000 quota
-            ram_gb=0.512,
-            carbon_intensity_gco2_kwh=650.0,
-            avg_power_w=5.0,
-            network_type="4g_lte",
-        ),
-        NodeProfile(
-            name="node-2", # Urban Edge (Lahore 5G)
-            cpu_cores=0.4, # 40000 quota
-            ram_gb=0.512,
-            carbon_intensity_gco2_kwh=600.0,
-            avg_power_w=8.0,
-            network_type="5g",
-        ),
-        NodeProfile(
-            name="node-3", # Smart City Edge (Gujranwala Wi-Fi)
-            cpu_cores=0.4, # 40000 quota
-            ram_gb=0.512,
-            carbon_intensity_gco2_kwh=550.0,
-            avg_power_w=8.0,
-            network_type="wifi",
-        ),
-        NodeProfile(
-            name="node-4", # Regional Datacenter (Islamabad)
-            cpu_cores=0.6, # 60000 quota
-            ram_gb=1.0,
-            carbon_intensity_gco2_kwh=400.0,
-            avg_power_w=15.0,
-            network_type="fiber",
-        ),
-        NodeProfile(
-            name="node-5", # Standard Cloud (AWS)
-            cpu_cores=1.0, # 100000 quota
-            ram_gb=2.0,
-            carbon_intensity_gco2_kwh=380.0,
-            avg_power_w=25.0,
-            network_type="fiber",
-        ),
-        NodeProfile(
-            name="node-6", # Green Cloud (Sweden)
-            cpu_cores=1.0, # 100000 quota
-            ram_gb=2.0,
-            carbon_intensity_gco2_kwh=15.0,
-            avg_power_w=25.0,
-            network_type="fiber",
-        ),
-    ]
+        NodeProfile(name="node-1", cpu_cores=0.8, ram_gb=1.0,   carbon_intensity_gco2_kwh=650.0, avg_power_w=5.0, network_type="4g_lte"),
+        NodeProfile(name="node-2", cpu_cores=1.0, ram_gb=1.0,   carbon_intensity_gco2_kwh=600.0, avg_power_w=8.0, network_type="5g"),
+        NodeProfile(name="node-3", cpu_cores=1.0, ram_gb=1.0,   carbon_intensity_gco2_kwh=550.0, avg_power_w=8.0, network_type="wifi"),
+        NodeProfile(name="node-4", cpu_cores=1.5, ram_gb=2.0,   carbon_intensity_gco2_kwh=400.0, avg_power_w=15.0, network_type="fiber"),
+        NodeProfile(name="node-5", cpu_cores=2.0, ram_gb=3.0,   carbon_intensity_gco2_kwh=380.0, avg_power_w=25.0, network_type="fiber"),
+        NodeProfile(name="node-6", cpu_cores=2.0, ram_gb=3.0,   carbon_intensity_gco2_kwh=15.0,  avg_power_w=25.0, network_type="fiber"),
+        ]
 
 
 # ---------------------------------------------------------------------------

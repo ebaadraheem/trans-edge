@@ -130,10 +130,9 @@ class CarbonEdgeEngine:
             mode=config.mode.value,
         )
 
-        # Partition the model once (static graph; could be re-partitioned
-        # dynamically on node join/leave events)
+        rep_nodes = [nodes[0], nodes[3], nodes[5]]
         self._partitions: List[Partition] = self._partitioner.partition(
-            nodes, num_partitions=3
+            rep_nodes, num_partitions=3
         )
 
         # SimPy environment + per-node resource pools
@@ -168,11 +167,7 @@ class CarbonEdgeEngine:
         # Launch the arrival generator process
         self._env.process(self._arrival_generator())
 
-        # Run until all arrivals are processed (with a safety ceiling)
-        max_sim_time = (
-            self._cfg.num_requests / self._cfg.arrival_rate_rps * 1000 * 10
-        )   # 10× the expected duration
-        self._env.run(until=max_sim_time)
+        self._env.run()
 
         log.info(
             "[engine] Simulation complete: %d completed, %d failed, "
@@ -180,7 +175,8 @@ class CarbonEdgeEngine:
             self._completed, self._failed, self._env.now,
         )
 
-        summary = self._logger.finalize()
+        # Pass the true simulation clock time to the logger for accurate Throughput
+        summary = self._logger.finalize(sim_time_ms=self._env.now)
         self._print_summary(summary)
         return self._logger
 

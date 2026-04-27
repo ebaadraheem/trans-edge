@@ -206,12 +206,6 @@ class SchedulingDecision:
 class TANSScheduler:
     """
     Transfer-Aware Node Selection Scheduler.
-
-    Usage
-    -----
-    scheduler = TANSScheduler(nodes, monitor, mode=SchedulingMode.TANS_GREEN)
-    decisions = scheduler.schedule(partitions)
-    # decisions[i] tells you which node runs partition i
     """
 
     LATENCY_THRESHOLD_MS = 100.0   # skip nodes slower than this
@@ -337,14 +331,17 @@ class TANSScheduler:
         best_comps: Dict[str, float] = {}
         best_carbon = 0.0
 
+        # FIX: Initialize the dictionary to hold candidate nodes before the loop
+        eligible_nodes = {}
+
         for node_name, node in self._nodes.items():
             live   = self._live[node_name]
             carbon = self._monitor.nodes[node_name]
 
-            # FIX 2 (Scheduler side): If co-located, incoming transfer is 0
+            # (Scheduler side): If co-located, incoming transfer is 0
             actual_transfer_mb = incoming_transfer_mb if node_name != prev_node_name else 0.0
 
-            # FIX 3: Transfer relies on the SENDER'S network (the previous node)
+            # Transfer relies on the SENDER'S network (the previous node)
             if prev_node_name and actual_transfer_mb > 0:
                 prev_node = self._nodes[prev_node_name]
                 net_type = getattr(prev_node, 'network_type', 'default').lower()
@@ -357,8 +354,7 @@ class TANSScheduler:
             mbps = 100.0 if net_type in ["5g", "4g_lte"] else 500.0
             transfer_delay_ms = ((actual_transfer_mb * 8.0) / mbps) * 1000.0
 
-            # FIX 5: Remove transfer_delay_ms from the hard filter. 
-            # Only filter based on base node health so 4G/5G nodes aren't instantly skipped.
+            # Only filter based on base node health
             if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
                 continue
 
@@ -368,36 +364,61 @@ class TANSScheduler:
             if cpu_avail < cpu_req or mem_avail < mem_req_gb:
                 continue
 
+            # Calculate base scores
             sR = _score_resource(node, live, cpu_req, mem_req_gb)
             sL = _score_load(live)
-            
-            # Use transfer_delay_ms for the performance score (Transfer-Aware)
             sP = 1.0 / (1.0 + (transfer_delay_ms + live.avg_exec_time()) / 100.0)
             sB = _score_balance(live)
             
-            perceived_transfer = actual_transfer_mb if self._mode == SchedulingMode.TANS_GREEN else 0.0
-
-            # FIX 4: Equation Mismatch in TANS Carbon Score
-            # Total_Carbon = (E_comp × CI_local) + (E_trans × CI_network)
+            # Calculate carbon metrics for this node
             e_comp = carbon.estimate_inference_energy()
             energy_per_gb = TRANSFER_ENERGY_KWH_PER_GB.get(net_type, TRANSFER_ENERGY_KWH_PER_GB["default"])
-            e_trans = (perceived_transfer / 1024.0) * energy_per_gb
             
+            # All modes calculate true actual transfer carbon
+            e_trans = (actual_transfer_mb / 1024.0) * energy_per_gb
             total_carbon_eval = (e_comp * carbon.carbon_intensity_gco2_kwh) + (e_trans * sender_ci)
             
-            # TANS Carbon Score
-            sC = 1.0 / (1.0 + total_carbon_eval)
+            
+            # Store metrics for Min-Max normalization later
+            eligible_nodes[node_name] = {
+                "sR": sR, "sL": sL, "sP": sP, "sB": sB,
+                "raw_carbon": total_carbon_eval,
+                "reporting_e_comp": e_comp,
+                "reporting_ci": carbon.carbon_intensity_gco2_kwh,
+                "reporting_transfer_mb": actual_transfer_mb,
+                "reporting_energy_per_gb": energy_per_gb,
+                "reporting_sender_ci": sender_ci
+            }
 
-            total = w.wR*sR + w.wL*sL + w.wP*sP + w.wB*sB + w.wC*sC
-
-            if total > best_score:
-                best_score = total
-                best_node  = node_name
-                best_comps = {"sR": sR, "sL": sL, "sP": sP, "sB": sB, "sC": sC}
+        # --- MIN-MAX NORMALIZATION & FINAL SELECTION ---
+        if eligible_nodes:
+            # Find the min and max carbon footprint among available, valid nodes
+            min_carbon = min(n["raw_carbon"] for n in eligible_nodes.values())
+            max_carbon = max(n["raw_carbon"] for n in eligible_nodes.values())
+            
+            for node_name, metrics in eligible_nodes.items():
+                if max_carbon == min_carbon:
+                    sC = 1.0  # Fallback if all nodes have identical carbon impact
+                else:
+                    # Invert: lowest carbon gets 1.0 score, highest gets 0.0 score
+                    sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
                 
-                # Actual carbon estimation for reporting
-                best_carbon = (e_comp * carbon.carbon_intensity_gco2_kwh) + ((actual_transfer_mb / 1024.0) * energy_per_gb * sender_ci)
+                # If NOT in TANS-Green mode, revert to standard CarbonEdge un-normalized equation for baseline fairness
+                if self._mode != SchedulingMode.TANS_GREEN:
+                    sC = 1.0 / (1.0 + metrics["raw_carbon"])
 
+                # Calculate weighted total
+                total = w.wR*metrics["sR"] + w.wL*metrics["sL"] + w.wP*metrics["sP"] + w.wB*metrics["sB"] + w.wC*sC
+
+                if total > best_score:
+                    best_score = total
+                    best_node  = node_name
+                    best_comps = {"sR": metrics["sR"], "sL": metrics["sL"], "sP": metrics["sP"], "sB": metrics["sB"], "sC": sC}
+                    
+                    # Actual carbon estimation for reporting
+                    best_carbon = (metrics["reporting_e_comp"] * metrics["reporting_ci"]) + ((metrics["reporting_transfer_mb"] / 1024.0) * metrics["reporting_energy_per_gb"] * metrics["reporting_sender_ci"])
+
+        # Fallback if all nodes are overloaded/ineligible
         if best_node is None:
             best_node = min(self._live, key=lambda n: self._live[n].current_load)
             best_score = 0.0
