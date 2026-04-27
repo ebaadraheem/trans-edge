@@ -132,8 +132,8 @@ class NodeCarbonState:
     # ------------------------------------------------------------------
 
     def _compute_energy(self, exec_time_ms: float) -> float:
-        """E = P × Δt / 3_600_000_000   (W × ms → kWh)"""
-        return self.avg_power_w * exec_time_ms / 3_600_000_000.0
+        """E = P × Δt / 3_600_000   (W × ms → kWh)"""
+        return self.avg_power_w * exec_time_ms / 3_600_000.0
 
 
 # ---------------------------------------------------------------------------
