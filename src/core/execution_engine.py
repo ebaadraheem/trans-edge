@@ -178,7 +178,7 @@ class CarbonEdgeEngine:
         # Pass the true simulation clock time to the logger for accurate Throughput
         summary = self._logger.finalize(sim_time_ms=self._env.now)
         self._print_summary(summary)
-        return self._logger, summary
+        return self._logger
 
     # ------------------------------------------------------------------
     # SimPy processes
@@ -275,7 +275,6 @@ class CarbonEdgeEngine:
 
                 # ---- log metrics ----
                 self._logger.log_inference(
-                    request_id=req.req_id,
                     node=node_name,
                     partition_id=part.partition_id,
                     latency_ms=exec_ms + xfer_ms,

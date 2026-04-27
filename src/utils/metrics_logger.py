@@ -134,8 +134,7 @@ class MetricsLogger:
         self._buffer: List[InferenceRecord] = []
         self._detail_file  = open(detail_path, "w", newline="", encoding="utf-8")
         self._detail_writer: Optional[csv.DictWriter] = None
-        self._req_latencies: Dict[int, float] = {}
-        
+
         log.info("[metrics] Run %r → %s", self._run_id, detail_path)
 
     # ------------------------------------------------------------------
@@ -148,7 +147,6 @@ class MetricsLogger:
         node: str,
         partition_id: int,
         latency_ms: float,
-        request_id: int,
         energy_kwh: float,
         compute_carbon_gco2: float,
         transfer_carbon_gco2: float,
@@ -164,17 +162,14 @@ class MetricsLogger:
         total_carbon = compute_carbon_gco2 + transfer_carbon_gco2
 
         with self._lock:
-            if request_id not in self._req_latencies:
-                self._req_latencies[request_id] = 0.0
-            self._req_latencies[request_id] += latency_ms
             self._inf_id       += 1
             self._cum_carbon   += total_carbon
             self._total_energy += energy_kwh
             self._nodes_used.add(node)
+            self._latencies.append(latency_ms)
             tput = 1000.0 / latency_ms if latency_ms > 0 else 0.0
             self._throughputs.append(tput)
             self._overheads.append(scheduling_overhead_ms)
-            
 
             rec = InferenceRecord(
                 timestamp_s=          time.time(),
@@ -261,9 +256,8 @@ class MetricsLogger:
         self._buffer.clear()
 
     def _build_summary(self, sim_time_ms: float = 0.0) -> RunSummary:
-        true_request_latencies = list(self._req_latencies.values())
-        total_requests = len(true_request_latencies)
-        if total_requests == 0:
+        n = len(self._latencies)
+        if n == 0:
             return RunSummary(
                 run_id=self._run_id, mode=self._mode,
                 total_inferences=0, total_latency_ms=0, avg_latency_ms=0,
@@ -274,30 +268,33 @@ class MetricsLogger:
                 nodes_used="",
             )
 
-        sorted_lat = sorted(true_request_latencies)
-        p95_idx    = max(0, int(0.95 * total_requests) - 1)
+        sorted_lat = sorted(self._latencies)
+        p95_idx    = max(0, int(0.95 * n) - 1)
         
-        # Global throughput calculation
+        total_requests = n / 3.0 
+        
         if sim_time_ms > 0:
             sim_time_seconds = sim_time_ms / 1000.0
             true_throughput_rps = total_requests / sim_time_seconds
         else:
-            true_throughput_rps = 0.0 # Handled by the engine fix we discussed
+            true_throughput_rps = sum(self._throughputs) / n if n > 0 else 0.0
 
         return RunSummary(
             run_id=               self._run_id,
             mode=                 self._mode,
-            total_inferences=     total_requests,   # FIXED: Now represents true full inferences
-            total_latency_ms=     round(sum(true_request_latencies), 4),
-            avg_latency_ms=       round(sum(true_request_latencies) / total_requests, 4), # FIXED
-            p95_latency_ms=       round(sorted_lat[p95_idx], 4), # FIXED
-            max_latency_ms=       round(sorted_lat[-1], 4),      # FIXED
-            total_throughput_rps= round(true_throughput_rps, 4),
-            avg_throughput_rps=   round(true_throughput_rps, 4),
+            total_inferences=     n,
+            total_latency_ms=     round(sum(self._latencies), 4),
+            avg_latency_ms=       round(sum(self._latencies) / n, 4),
+            p95_latency_ms=       round(sorted_lat[p95_idx], 4),
+            max_latency_ms=       round(sorted_lat[-1], 4),
+            total_throughput_rps= round(true_throughput_rps, 4), # Fixed
+            avg_throughput_rps=   round(true_throughput_rps, 4), # Fixed
             total_energy_kwh=     round(self._total_energy, 10),
             total_carbon_gco2=    round(self._cum_carbon, 10),
-            carbon_efficiency=    round(total_requests / self._cum_carbon, 4) if self._cum_carbon > 0 else 0.0, # FIXED
-            avg_scheduling_oh_ms= round(sum(self._overheads) / len(self._overheads), 4) if self._overheads else 0.0,
+            carbon_efficiency=    round(n / self._cum_carbon, 4)
+                                  if self._cum_carbon > 0 else 0.0,
+            avg_scheduling_oh_ms= round(sum(self._overheads) / len(self._overheads), 4)
+                                  if self._overheads else 0.0,
             duration_s=           round(time.monotonic() - self._start_ts, 3),
             nodes_used=           ",".join(sorted(self._nodes_used)),
         )
