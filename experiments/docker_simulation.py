@@ -123,7 +123,7 @@ def run_mode(
     engine = CarbonEdgeEngine(nodes=nodes, config=cfg, docker_manager=docker_mgr)
     
     t0     = time.perf_counter()
-    logger = engine.run()
+    logger, summary = engine.run()
     elapsed = time.perf_counter() - t0
     
     # --- STOP DOCKER ---
@@ -133,7 +133,7 @@ def run_mode(
     
     log.info("[main] %s completed in %.2f s (real)", mode.value, elapsed)
 
-    return logger._build_summary()
+    return summary
 
 
 # ---------------------------------------------------------------------------
