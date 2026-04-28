@@ -133,7 +133,7 @@ def run_mode(
     
     log.info("[main] %s completed in %.2f s (real)", mode.value, elapsed)
 
-    return logger._build_summary()
+    return logger._build_summary(sim_time_ms=engine._env.now)
 
 
 # ---------------------------------------------------------------------------
