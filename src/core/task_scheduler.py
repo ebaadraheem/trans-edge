@@ -400,30 +400,37 @@ class TANSScheduler:
 
         # --- MIN-MAX NORMALIZATION & FINAL SELECTION ---
         if eligible_nodes:
-            # Find the min and max carbon footprint among available, valid nodes
             min_carbon = min(n["raw_carbon"] for n in eligible_nodes.values())
             max_carbon = max(n["raw_carbon"] for n in eligible_nodes.values())
-            
+
             for node_name, metrics in eligible_nodes.items():
-                
-                # If NOT in TANS-Green mode, revert to standard CarbonEdge un-normalized equation for baseline fairness
+
                 if self._mode != SchedulingMode.TANS_GREEN:
+                    # CarbonEdge-faithful: compute-only carbon, paper Eq. 4
                     sC = 1.0 / (1.0 + metrics["compute_only_carbon"])
                 else:
-                    # min-max normalization on full transfer-aware carbon
-                    sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
+                    # TANS-Green: transfer-aware carbon, min-max normalised
+                    if max_carbon == min_carbon:
+                        sC = 1.0  # all nodes identical — treat as equally green
+                    else:
+                        sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
 
-                # Calculate weighted total
-                total = w.wR*metrics["sR"] + w.wL*metrics["sL"] + w.wP*metrics["sP"] + w.wB*metrics["sB"] + w.wC*sC
+                total = (w.wR * metrics["sR"] + w.wL * metrics["sL"] +
+                        w.wP * metrics["sP"] + w.wB * metrics["sB"] + w.wC * sC)
 
                 if total > best_score:
                     best_score = total
                     best_node  = node_name
-                    best_comps = {"sR": metrics["sR"], "sL": metrics["sL"], "sP": metrics["sP"], "sB": metrics["sB"], "sC": sC}
-                    
-                    # Actual carbon estimation for reporting
-                    best_carbon = (metrics["reporting_e_comp"] * metrics["reporting_ci"]) + ((metrics["reporting_transfer_mb"] / 1024.0) * metrics["reporting_energy_per_gb"] * metrics["reporting_sender_ci"])
-
+                    best_comps = {
+                        "sR": metrics["sR"], "sL": metrics["sL"],
+                        "sP": metrics["sP"], "sB": metrics["sB"], "sC": sC
+                    }
+                    best_carbon = (
+                        metrics["reporting_e_comp"] * metrics["reporting_ci"]
+                        + (metrics["reporting_transfer_mb"] / 1024.0)
+                        * metrics["reporting_energy_per_gb"]
+                        * metrics["reporting_sender_ci"]
+                    )
         # Fallback if all nodes are overloaded/ineligible
         if best_node is None:
             best_node = min(self._live, key=lambda n: self._live[n].current_load)
