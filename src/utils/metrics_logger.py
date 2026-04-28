@@ -1,36 +1,11 @@
-"""
-src/utils/metrics_logger.py
-----------------------------
-CSV-based metrics logger for CarbonEdge simulation runs.
-
-Records one row per inference event:
-  timestamp_s, run_id, mode, inference_id, node, partition_id,
-  latency_ms, throughput_rps, energy_kwh, carbon_gco2,
-  compute_carbon_gco2, transfer_carbon_gco2,
-  transfer_size_mb, network_type, ci_gco2_kwh,
-  scheduling_overhead_ms, cumulative_carbon_gco2
-
-Also writes a per-run summary row to a separate *_summary.csv* file.
-
-Design notes
-------------
-* Thread-safe via a lock; safe to call from SimPy processes and the
-  Flask health thread simultaneously.
-* The logger flushes after every N rows (flush_interval) so data is
-  not lost on abrupt termination.
-* The run_id defaults to an ISO-8601 timestamp so multiple experiment
-  runs never overwrite each other.
-"""
 
 from __future__ import annotations
 
 import csv
-import io
 import logging
-import os
 import threading
 import time
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -43,29 +18,27 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class InferenceRecord:
-    """One inference event across one partition."""
     timestamp_s:             float
     run_id:                  str
-    mode:                    str         # scheduling mode label
-    inference_id:            int         # global counter for this run
+    mode:                    str         
+    inference_id:            int         
     node:                    str
     partition_id:            int
     latency_ms:              float
-    throughput_rps:          float       # 1000 / latency_ms
-    energy_kwh:              float       # compute energy for this partition
-    carbon_gco2:             float       # total (compute + transfer)
+    throughput_rps:          float       
+    energy_kwh:              float       
+    carbon_gco2:             float       
     compute_carbon_gco2:     float
     transfer_carbon_gco2:    float
     transfer_size_mb:        float
     network_type:            str
     ci_gco2_kwh:             float
     scheduling_overhead_ms:  float
-    cumulative_carbon_gco2:  float       # running total for the run
+    cumulative_carbon_gco2:  float       
 
 
 @dataclass
 class RunSummary:
-    """Aggregated stats written once when a simulation run ends."""
     run_id:                  str
     mode:                    str
     total_inferences:        int
@@ -77,10 +50,10 @@ class RunSummary:
     avg_throughput_rps:      float
     total_energy_kwh:        float
     total_carbon_gco2:       float
-    carbon_efficiency:       float       # inferences / gCO₂
+    carbon_efficiency:       float      
     avg_scheduling_oh_ms:    float
     duration_s:              float
-    nodes_used:              str         # comma-separated list
+    nodes_used:              str        
 
 
 # ---------------------------------------------------------------------------
@@ -88,16 +61,6 @@ class RunSummary:
 # ---------------------------------------------------------------------------
 
 class MetricsLogger:
-    """
-    Thread-safe CSV logger.
-
-    Parameters
-    ----------
-    output_dir    : Directory to write CSV files into.
-    run_id        : Identifier for this experiment run.
-    mode          : Scheduling mode label (e.g. "tans_green").
-    flush_interval: Flush to disk every N records.
-    """
 
     DETAIL_SUFFIX  = "_detail.csv"
     SUMMARY_SUFFIX = "_summary.csv"
@@ -116,7 +79,6 @@ class MetricsLogger:
         self._mode   = mode
         self._flush  = flush_interval
 
-        # Running accumulators
         self._inf_id: int   = 0
         self._cum_carbon: float = 0.0
         self._latencies: List[float] = []
@@ -126,7 +88,6 @@ class MetricsLogger:
         self._nodes_used: set  = set()
         self._start_ts: float  = time.monotonic()
 
-        # File handles
         detail_path  = self._dir / f"{self._run_id}{self.DETAIL_SUFFIX}"
         self._detail_path = detail_path
 
@@ -155,10 +116,6 @@ class MetricsLogger:
         ci_gco2_kwh: float,
         scheduling_overhead_ms: float = 0.0,
     ) -> InferenceRecord:
-        """
-        Record one inference event and return the InferenceRecord for callers
-        that need the cumulative carbon value.
-        """
         total_carbon = compute_carbon_gco2 + transfer_carbon_gco2
 
         with self._lock:
@@ -197,9 +154,6 @@ class MetricsLogger:
         return rec
 
     def finalize(self, sim_time_ms: float = 0.0) -> RunSummary:
-        """
-        Flush remaining records, write the summary row, close file handles.
-        """
         with self._lock:
             self._flush_buffer()
             self._detail_file.close()
@@ -215,7 +169,6 @@ class MetricsLogger:
         return summary
 
     def current_stats(self) -> Dict:
-        """Live snapshot (no lock needed for reads on CPython GIL)."""
         n = len(self._latencies)
         if n == 0:
             return {"inference_count": 0}
@@ -243,7 +196,6 @@ class MetricsLogger:
             return
 
         if self._detail_writer is None:
-            # Initialise writer on first flush so we have a record to inspect
             field_names = [f.name for f in fields(InferenceRecord)]
             self._detail_writer = csv.DictWriter(
                 self._detail_file, fieldnames=field_names
@@ -287,8 +239,8 @@ class MetricsLogger:
             avg_latency_ms=       round(sum(self._latencies) / n, 4),
             p95_latency_ms=       round(sorted_lat[p95_idx], 4),
             max_latency_ms=       round(sorted_lat[-1], 4),
-            total_throughput_rps= round(true_throughput_rps, 4), # Fixed
-            avg_throughput_rps=   round(true_throughput_rps, 4), # Fixed
+            total_throughput_rps= round(true_throughput_rps, 4), 
+            avg_throughput_rps=   round(true_throughput_rps, 4), 
             total_energy_kwh=     round(self._total_energy, 10),
             total_carbon_gco2=    round(self._cum_carbon, 10),
             carbon_efficiency=    round(n / self._cum_carbon, 4)
@@ -318,10 +270,6 @@ class MetricsLogger:
 # ---------------------------------------------------------------------------
 
 def compare_runs(result_dir: Path | str) -> None:
-    """
-    Print a quick ASCII comparison table from all *_summary.csv files in
-    *result_dir*.  Useful after running multiple scheduling modes.
-    """
     result_dir = Path(result_dir)
     summaries: List[Dict] = []
     for p in sorted(result_dir.glob("*_summary.csv")):

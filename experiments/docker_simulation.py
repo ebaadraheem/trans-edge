@@ -1,33 +1,3 @@
-"""
-experiments/docker_simulation.py
---------------------------------
-Entry point for the CarbonEdge SimPy simulation.
-
-Runs the full pipeline across all four scheduling modes and prints a
-side-by-side comparison table, replicating (and extending) the
-CarbonEdge paper's Table II experiment.
-
-Usage
------
-    # From the project root:
-    PYTHONPATH=. python experiments/docker_simulation.py
-
-    # With a real Electricity Maps API key:
-    ELECTRICITY_MAPS_API_KEY=<your-key> PYTHONPATH=. python experiments/docker_simulation.py
-
-    # Fast smoke-test (10 requests):
-    PYTHONPATH=. python experiments/docker_simulation.py --quick
-
-CLI flags
----------
---quick       : 10 requests, fast calibration (for CI / smoke tests)
---requests N  : Number of inference requests per mode (default 50)
---rate R      : Arrival rate in req/s (default 0.5)
---seed S      : RNG seed (default 42)
---results DIR : Output directory for CSV files (default ./results)
---mode M      : Run only one mode (performance|balanced|green|tans_green)
---docker      : Run real PyTorch containers
-"""
 
 from __future__ import annotations
 import argparse
@@ -45,10 +15,6 @@ from src.utils.docker_manager import DockerNodeManager, node_profile_to_config
 
 log = logging.getLogger("docker_simulation")
 
-
-# ---------------------------------------------------------------------------
-# Node definitions
-# ---------------------------------------------------------------------------
 
 def get_nodes() -> list[NodeProfile]:
     """
@@ -81,10 +47,6 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# ---------------------------------------------------------------------------
-# Single-mode runner
-# ---------------------------------------------------------------------------
-
 def run_mode(
     mode: SchedulingMode,
     nodes: list[NodeProfile],
@@ -95,7 +57,6 @@ def run_mode(
     ms_per_100_mflops: float = 25.0,
     use_docker: bool = False,
 ) -> RunSummary:
-    """Run one complete simulation for *mode*."""
     run_id = f"{mode.value}"
     cfg = SimConfig(
         arrival_rate_rps=arrival_rate,
@@ -117,9 +78,7 @@ def run_mode(
         configs = [node_profile_to_config(n, base_port=5100 + i) for i, n in enumerate(nodes)]
         docker_mgr = DockerNodeManager(configs, dry_run=False)
         docker_mgr.start_all()
-    # -------------------------------
 
-    # Pass the docker_mgr to the engine
     engine = CarbonEdgeEngine(nodes=nodes, config=cfg, docker_manager=docker_mgr)
     
     t0     = time.perf_counter()
@@ -133,7 +92,7 @@ def run_mode(
     
     log.info("[main] %s completed in %.2f s (real)", mode.value, elapsed)
 
-    return logger._build_summary(sim_time_ms=engine._env.now)
+    return logger._build_summary()
 
 
 # ---------------------------------------------------------------------------
@@ -141,11 +100,7 @@ def run_mode(
 # ---------------------------------------------------------------------------
 
 def print_comparison(summaries: list[RunSummary], baseline_mode: str = "performance") -> None:
-    """
-    Print a LaTeX-style ASCII table comparing all modes.
-    Highlights carbon reduction vs. the performance (baseline) mode.
-    """
-    # Find baseline for relative comparisons
+ 
     baseline = next((s for s in summaries if s.mode == baseline_mode), summaries[0])
 
     print("\n" + "╔" + "═" * 94 + "╗")
@@ -186,7 +141,6 @@ def print_comparison(summaries: list[RunSummary], baseline_mode: str = "performa
     print("  Columns: Avg/P95 latency (ms), Throughput (req/s), Energy (kWh),")
     print("  Carbon (gCO₂), Efficiency (inferences/gCO₂), Δ vs Performance mode.")
 
-    # TANS-Green vs CarbonEdge-Green
     tans   = next((s for s in summaries if s.mode == "tans_green"),  None)
     green  = next((s for s in summaries if s.mode == "green"),       None)
     if tans and green and green.total_carbon_gco2 > 0:

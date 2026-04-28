@@ -11,7 +11,7 @@ import requests
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Network transfer energy coefficients (kWh per GB)
+# Network transfer energy coefficients
 # ---------------------------------------------------------------------------
 TRANSFER_ENERGY_KWH_PER_GB = {
         "4g_lte": 0.14,
@@ -26,18 +26,16 @@ TRANSFER_ENERGY_KWH_PER_GB = {
 # ---------------------------------------------------------------------------
 _API_BASE = "https://api.electricitymap.org/v3/carbon-intensity/latest"
 
-# Zone codes: https://static.electricitymap.org/api/docs/index.html#zones
 ZONE_CODES: Dict[str, str] = {
-    "node-uk":  "GB",    # Great Britain
-    "node-usa": "US-CAL-CISO",  # California ISO (representative US grid)
-    "node-se":  "SE",    # Sweden
+    "node-uk":  "GB",   
+    "node-usa": "US-CAL-CISO",  
+    "node-se":  "SE",    
 }
 
-# Static fallback intensities (gCO₂/kWh) — used when API key absent / offline
 STATIC_FALLBACK_CI: Dict[str, float] = {
-    "node-uk":  233.0,   # National Grid ESO 2024 average
-    "node-usa": 386.0,   # EPA eGRID 2022 national average
-    "node-se":   13.0,   # Energimyndigheten 2023
+    "node-uk":  233.0,   
+    "node-usa": 386.0,   
+    "node-se":   13.0,   
 }
 
 
@@ -50,8 +48,8 @@ STATIC_FALLBACK_CI: Dict[str, float] = {
 class NodeCarbonState:
     """Mutable carbon accounting state for one edge node."""
     node_name:                  str
-    carbon_intensity_gco2_kwh:  float          # live or static
-    avg_power_w:                float          # node's steady-state power draw
+    carbon_intensity_gco2_kwh:  float          
+    avg_power_w:                float          
     network_type:               str = "Fiber"
     pue:                        float = 1.0
 
@@ -62,21 +60,10 @@ class NodeCarbonState:
     _last_update_ts:            float = field(default_factory=time.monotonic,
                                               repr=False)
 
-    # Rolling average execution time (ms) — used by TANS energy estimator
     avg_exec_time_ms:           float = 200.0
 
     def record_inference(self, exec_time_ms: float) -> float:
-        """
-        Integrate energy for one inference pass and return gCO₂ emitted.
-
-        Parameters
-        ----------
-        exec_time_ms : Wall-clock inference duration on this node.
-
-        Returns
-        -------
-        float : Carbon emitted (gCO₂) for this single inference.
-        """
+        
         energy_kwh = self._compute_energy(exec_time_ms)
         carbon_gco2 = energy_kwh * self.carbon_intensity_gco2_kwh * self.pue
 
@@ -84,7 +71,6 @@ class NodeCarbonState:
         self.total_carbon_gco2 += carbon_gco2
         self.inference_count   += 1
 
-        # exponential moving average of execution time (α = 0.2)
         alpha = 0.2
         self.avg_exec_time_ms = (
             alpha * exec_time_ms + (1 - alpha) * self.avg_exec_time_ms
@@ -93,20 +79,12 @@ class NodeCarbonState:
         return carbon_gco2
 
     def estimate_inference_energy(self, exec_time_ms: Optional[float] = None) -> float:
-        """
-        Estimate energy (kWh) for a future inference without recording it.
-        Used by the TANS carbon efficiency score (Eq. 4 in CarbonEdge).
-        """
+        
         t = exec_time_ms if exec_time_ms is not None else self.avg_exec_time_ms
         return self._compute_energy(t)
     
     def transfer_carbon(self, size_mb: float) -> float:
-        """
-        Carbon (gCO₂) to transfer *size_mb* megabytes over this node's link.
-
-        Total_Carbon = E_comp × CI_local + E_trans × CI_network
-        Here we return only the transfer component; TANS adds both.
-        """
+        
         size_gb = size_mb / 1024.0
         coeff   = TRANSFER_ENERGY_KWH_PER_GB.get(
             self.network_type,
@@ -116,7 +94,7 @@ class NodeCarbonState:
         return e_trans * self.carbon_intensity_gco2_kwh     # gCO₂
 
     def snapshot(self) -> Dict:
-        """Return a JSON-serialisable summary for the metrics logger."""
+      
         return {
             "node":                      self.node_name,
             "ci_gco2_kwh":               self.carbon_intensity_gco2_kwh,
@@ -127,9 +105,6 @@ class NodeCarbonState:
             "network_type":              self.network_type,
         }
 
-    # ------------------------------------------------------------------
-    # Private
-    # ------------------------------------------------------------------
 
     def _compute_energy(self, exec_time_ms: float) -> float:
         """E = P × Δt / 3_600_000_000   (W × ms → kWh)"""
@@ -137,22 +112,10 @@ class NodeCarbonState:
 
 
 # ---------------------------------------------------------------------------
-# Carbon Monitor  (singleton-style, one per simulation run)
+# Carbon Monitor  
 # ---------------------------------------------------------------------------
 
 class CarbonMonitor:
-    """
-    Tracks carbon and energy across the entire edge cluster.
-
-    Parameters
-    ----------
-    node_profiles : List of dicts (or NodeProfile-like objects) with at least:
-                    {name, carbon_intensity_gco2_kwh, avg_power_w, network_type}
-    api_key       : Electricity Maps API token.  If None, uses env var
-                    ELECTRICITY_MAPS_API_KEY, then falls back to static values.
-    refresh_interval_s : How often to re-fetch live CI (seconds).
-                         Set to 0 to disable live refresh.
-    """
 
     def __init__(
         self,
@@ -164,7 +127,6 @@ class CarbonMonitor:
         self._refresh_interval = refresh_interval_s
         self._last_refresh: float = 0.0
 
-        # Build per-node state objects
         self.nodes: Dict[str, NodeCarbonState] = {}
         for np in node_profiles:
             name = np.name if hasattr(np, "name") else np["name"]
@@ -183,10 +145,7 @@ class CarbonMonitor:
     # ------------------------------------------------------------------
 
     def refresh(self, force: bool = False) -> None:
-        """
-        Refresh live carbon intensities from Electricity Maps.
-        No-op if the refresh interval has not elapsed (unless *force* is True).
-        """
+      
         now = time.monotonic()
         if not force and (now - self._last_refresh) < self._refresh_interval:
             return
@@ -207,22 +166,22 @@ class CarbonMonitor:
                 log.info("[carbon_monitor] %s CI updated: %.1f gCO₂/kWh", node_name, ci)
 
     def record(self, node_name: str, exec_time_ms: float) -> float:
-        """Record one inference on *node_name*; return gCO₂ emitted."""
+       
         self._maybe_refresh()
         return self.nodes[node_name].record_inference(exec_time_ms)
 
     def estimate_compute_carbon(self, node_name: str,
                                 exec_time_ms: Optional[float] = None) -> float:
-        """gCO₂ for compute on *node_name* (does NOT record)."""
+        
         return (self.nodes[node_name].estimate_inference_energy(exec_time_ms)
                 * self.nodes[node_name].carbon_intensity_gco2_kwh)
 
     def estimate_transfer_carbon(self, src_node: str, size_mb: float) -> float:
-        """gCO₂ to transfer *size_mb* MB away from *src_node*."""
+        
         return self.nodes[src_node].transfer_carbon(size_mb)
 
     def cluster_snapshot(self) -> Dict:
-        """Aggregate stats across all nodes."""
+        
         total_energy = sum(s.total_energy_kwh  for s in self.nodes.values())
         total_carbon = sum(s.total_carbon_gco2 for s in self.nodes.values())
         total_infs   = sum(s.inference_count    for s in self.nodes.values())
@@ -231,17 +190,11 @@ class CarbonMonitor:
             "total_energy_kwh":   round(total_energy, 8),
             "total_carbon_gco2":  round(total_carbon, 8),
             "total_inferences":   total_infs,
-            "carbon_efficiency":  round(carbon_eff, 2),  # inferences / gCO₂
+            "carbon_efficiency":  round(carbon_eff, 2), 
             "nodes":              [s.snapshot() for s in self.nodes.values()],
         }
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     def _initial_ci(self, node_name: str, profile) -> float:
-        """Resolve starting CI: try live API first, else static fallback."""
-        # Respect an explicitly provided static value in the profile
         explicit = (
             getattr(profile, "carbon_intensity_gco2_kwh", None)
             or (profile.get("carbon_intensity_gco2_kwh") if isinstance(profile, dict) else None)
@@ -263,10 +216,7 @@ class CarbonMonitor:
             self.refresh()
 
     def _fetch_ci(self, zone: str) -> Optional[float]:
-        """
-        Call Electricity Maps v3 API.
-        Returns gCO₂/kWh or None on any error (network, auth, rate-limit).
-        """
+       
         try:
             resp = requests.get(
                 _API_BASE,
@@ -306,7 +256,6 @@ if __name__ == "__main__":
     nodes   = build_default_nodes()
     monitor = CarbonMonitor(node_profiles=nodes, refresh_interval_s=0)
 
-    # Simulate 10 inferences split across nodes
     for i in range(10):
         node_name = nodes[i % len(nodes)].name
         exec_ms   = 250.0 + i * 5

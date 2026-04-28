@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -9,18 +8,7 @@ import pandas as pd
 
 @dataclass
 class NodeProfile:
-    """
-    Describes one edge node's capabilities and regional carbon context.
-
-    Attributes
-    ----------
-    name          : Unique node identifier, e.g. "node-uk".
-    cpu_cores     : Fractional CPU allocation (e.g. 1.0 = one full core).
-    ram_gb        : RAM limit in gigabytes.
-    carbon_intensity_gco2_kwh : Regional grid carbon intensity (gCO₂/kWh).
-    avg_power_w   : Node's average power draw in watts (used by TANS).
-    network_type  : "5G" | "Fiber" – determines transfer energy coefficient.
-    """
+    
     name: str
     cpu_cores: float
     ram_gb: float
@@ -31,21 +19,17 @@ class NodeProfile:
 
 @dataclass
 class Partition:
-    """
-    One logical slice of the ResNet-50 computation graph assigned to a node.
-    """
+    
     partition_id: int
     node_name: str
-    layer_ids: List[int]                  # indices into the profile CSV
+    layer_ids: List[int]                 
     layer_names: List[str]
     input_shape: str
     compute_cost_mflops: float
-    # Serialised tensor that must travel to the *next* node (0 for last)
     output_tensor_size_mb: float
-    # Fraction of total model FLOPs (informational)
     workload_fraction: float = 0.0
 
-    def __repr__(self) -> str:           # pragma: no cover
+    def __repr__(self) -> str:        
         return (
             f"Partition(id={self.partition_id}, node={self.node_name!r}, "
             f"layers={self.layer_ids[0]}–{self.layer_ids[-1]}, "
@@ -55,7 +39,7 @@ class Partition:
 
 
 # ---------------------------------------------------------------------------
-# Capability scoring helpers  (Equations 3–4 from AMP4EC)
+# Capability scoring helpers  
 # ---------------------------------------------------------------------------
 
 _W_CPU: float = 0.6   # weight for CPU score
@@ -65,23 +49,14 @@ _W_MEM: float = 0.4   # weight for memory score
 def _node_capability_score(node: NodeProfile,
                             max_cpu: float,
                             max_ram: float) -> float:
-    """
-    Eq. 3:  Sᵢ = w_cpu · (cᵢ / c_max) + w_mem · (mᵢ / m_max)
-
-    Normalising by the cluster maximum ensures scores ∈ [0, 1].
-    """
+    
     c_norm = node.cpu_cores / max_cpu if max_cpu > 0 else 0.0
     m_norm = node.ram_gb    / max_ram if max_ram > 0 else 0.0
     return _W_CPU * c_norm + _W_MEM * m_norm
 
 
 def _capability_fractions(nodes: List[NodeProfile]) -> List[float]:
-    """
-    Eq. 4:  Pᵢ = Sᵢ / Σⱼ Sⱼ
-
-    Returns normalised fractions that sum to 1.0, one per node.
-    If all scores are zero, falls back to uniform distribution.
-    """
+    
     max_cpu = max(n.cpu_cores for n in nodes) or 1.0
     max_ram = max(n.ram_gb    for n in nodes) or 1.0
 
@@ -94,15 +69,11 @@ def _capability_fractions(nodes: List[NodeProfile]) -> List[float]:
 
 
 # ---------------------------------------------------------------------------
-# Load-balance metric  (Equation 5 from AMP4EC)
+# Load-balance metric
 # ---------------------------------------------------------------------------
 
 def _load_balance_metric(partition_costs: List[float]) -> float:
-    """
-    Eq. 5:  L = (1/n) Σᵢ |Lᵢ − L_avg|
-
-    Lower is better.  Returns 0 for a single partition.
-    """
+    
     if len(partition_costs) <= 1:
         return 0.0
     avg = sum(partition_costs) / len(partition_costs)
@@ -114,14 +85,6 @@ def _load_balance_metric(partition_costs: List[float]) -> float:
 # ---------------------------------------------------------------------------
 
 class ModelPartitioner:
-    """
-    Greedy RALOS partitioner for ResNet-50.
-
-    Parameters
-    ----------
-    profile_csv : Path to data/resnet50_profile.csv.
-    max_refinement_iters : Upper bound on boundary-nudge iterations.
-    """
 
     def __init__(
         self,
@@ -140,19 +103,7 @@ class ModelPartitioner:
         nodes: List[NodeProfile],
         num_partitions: Optional[int] = None,
     ) -> List[Partition]:
-        """
-        Split ResNet-50 layers across *nodes* using RALOS.
-
-        Parameters
-        ----------
-        nodes           : Ordered list of NodeProfile objects (edge cluster).
-        num_partitions  : Desired number of cuts. Defaults to len(nodes).
-
-        Returns
-        -------
-        List[Partition] ordered from first to last sub-model.
-        Len == num_partitions (or fewer if the model has too few layers).
-        """
+        
         num_partitions = num_partitions or len(nodes)
         num_partitions = max(1, min(num_partitions, len(self._df)))
 
@@ -201,13 +152,8 @@ class ModelPartitioner:
         fractions: List[float],
         num_partitions: int,
     ) -> List[float]:
-        """
-        Map node capability fractions onto per-partition FLOPs targets.
-        If num_partitions < len(nodes), normalize the top fractions to sum to 1.0.
-        """
         total = self._total_flops()
         
-        # FIX 1: Normalize fractions if there are more nodes than partitions
         if len(fractions) > num_partitions:
             sub_fractions = fractions[:num_partitions]
             norm_factor = sum(sub_fractions)
@@ -220,24 +166,16 @@ class ModelPartitioner:
         targets: List[float] = []
 
         for i in range(num_partitions):
-            node_idx = min(i, n_nodes - 1)
-            # If more partitions than nodes, split the last node's budget
             if i < n_nodes:
                 targets.append(fractions[i] * total)
             else:
-                # redistribute remaining budget equally among overflow parts
                 remaining_parts = num_partitions - n_nodes
                 targets.append(fractions[n_nodes - 1] * total / (remaining_parts + 1))
 
         return targets
 
     def _greedy_boundaries(self, targets: List[float]) -> List[int]:
-        """
-        Place boundary layer indices so each partition accumulates ≈ target.
-
-        Returns a list of *exclusive end* indices, length == num_partitions.
-        Last entry is always len(df).
-        """
+        
         costs  = self._df["compute_cost_mflops"].tolist()
         n_layers = len(costs)
         n_parts  = len(targets)
@@ -248,7 +186,6 @@ class ModelPartitioner:
 
         for p_idx, target in enumerate(targets):
             if p_idx == n_parts - 1:
-                # absorb all remaining layers into the last partition
                 boundaries.append(n_layers)
                 break
             while cursor < n_layers:
@@ -257,46 +194,34 @@ class ModelPartitioner:
                 if acc_cost >= target:
                     break
             boundaries.append(cursor)
-            acc_cost = 0.0  # reset for next partition
+            acc_cost = 0.0 
 
-        # safety: ensure we always end at n_layers
         if boundaries[-1] != n_layers:
             boundaries[-1] = n_layers
 
         return boundaries
 
     def _refine_boundaries(self, boundaries: List[int]) -> List[int]:
-        """
-        Nudge boundaries left / right to minimise Load Imbalance AND Transfer Penalty.
-        Early-stops when no improvement is found.
-        """
+        
         costs        = self._df["compute_cost_mflops"].tolist()
-        output_sizes = self._df["output_size_mb"].tolist()  # Fetch output sizes
+        output_sizes = self._df["output_size_mb"].tolist()  
         n_layers     = len(costs)
 
-        # NEW: Internal helper to evaluate the combined score of a boundary setup
         def _evaluate_score(b_list: List[int]) -> float:
             p_costs = self._partition_costs(b_list, costs)
             L = _load_balance_metric(p_costs)
             
-            # Calculate transfer penalty: sum of output_size_mb at each cut point.
-            # (b - 1) is used because 'boundaries' represents exclusive end indices.
-            transfer_penalty = sum(output_sizes[b - 1] for b in b_list[:-1])
-            
-            # Combine L and Transfer Penalty. 0.1 is a tunable weight factor.
-            return L + (0.1 * transfer_penalty)
+            return L
 
-        # Start with the baseline score of the greedy algorithm
         best_score = _evaluate_score(boundaries)
 
         for _ in range(self._max_iters):
             improved = False
-            for i in range(len(boundaries) - 1):     # never move the last boundary
+            for i in range(len(boundaries) - 1):   
                 for delta in (-1, +1):
                     new_b = list(boundaries)
                     candidate = new_b[i] + delta
 
-                    # keep strictly increasing and within range
                     lo = (new_b[i - 1] + 1) if i > 0 else 1
                     hi = (new_b[i + 1] - 1) if i < len(new_b) - 2 else n_layers - 1
                     if not (lo <= candidate <= hi):
@@ -322,7 +247,6 @@ class ModelPartitioner:
         boundaries: List[int],
         costs: List[float],
     ) -> List[float]:
-        """Sum of compute costs within each boundary slice."""
         starts = [0] + boundaries[:-1]
         return [
             sum(costs[s:e])
@@ -346,13 +270,11 @@ class ModelPartitioner:
 
             p_cost = float(layer_slice["compute_cost_mflops"].sum())
 
-            # Transfer tensor = last layer's output in this partition
             if not layer_slice.empty:
                 xfer_mb = float(layer_slice.iloc[-1]["output_size_mb"])
             else:
                 xfer_mb = 0.0
 
-            # Last partition has no downstream transfer
             if p_idx == num_partitions - 1:
                 xfer_mb = 0.0
 
@@ -371,7 +293,7 @@ class ModelPartitioner:
         return partitions
 
     @staticmethod
-    def _log_summary(partitions: List[Partition]) -> None:  # pragma: no cover
+    def _log_summary(partitions: List[Partition]) -> None:  
         total = sum(p.compute_cost_mflops for p in partitions)
         costs = [p.compute_cost_mflops for p in partitions]
         L     = _load_balance_metric(costs)
@@ -386,23 +308,85 @@ class ModelPartitioner:
 # ---------------------------------------------------------------------------
 
 def build_default_nodes() -> List[NodeProfile]:
-    """
-     six diverse nodes with following characteristics:
-    - node-1: Deep Edge (Highway) — low capability, high carbon, 4G
-    - node-2: Urban Edge (Lahore 5G) — medium capability, medium carbon, 5G
-    - node-3: Smart City Edge (Gujranwala Wi-Fi) — medium capability, medium carbon, Wi-Fi
-    - node-4: Regional Datacenter (Islamabad) — high capability, medium carbon, Fiber
-    - node-5: Standard Cloud (AWS) — very high capability, lower carbon, Fiber
-    - node-6: Green Cloud (Sweden) — very high capability, very low carbon, Fiber
-    """
     return [
-        NodeProfile(name="node-1", cpu_cores=0.8, ram_gb=1.0,   carbon_intensity_gco2_kwh=650.0, avg_power_w=5.0, network_type="4g_lte"),
-        NodeProfile(name="node-2", cpu_cores=1.0, ram_gb=1.0,   carbon_intensity_gco2_kwh=600.0, avg_power_w=8.0, network_type="5g"),
-        NodeProfile(name="node-3", cpu_cores=1.0, ram_gb=1.0,   carbon_intensity_gco2_kwh=550.0, avg_power_w=8.0, network_type="wifi"),
-        NodeProfile(name="node-4", cpu_cores=1.5, ram_gb=2.0,   carbon_intensity_gco2_kwh=400.0, avg_power_w=15.0, network_type="fiber"),
-        NodeProfile(name="node-5", cpu_cores=2.0, ram_gb=3.0,   carbon_intensity_gco2_kwh=380.0, avg_power_w=25.0, network_type="fiber"),
-        NodeProfile(name="node-6", cpu_cores=2.0, ram_gb=3.0,   carbon_intensity_gco2_kwh=15.0,  avg_power_w=25.0, network_type="fiber"),
-        ]
+        # Baseline Validation (Control) [1.0, 2.5, 3.5 req/s]
+        NodeProfile(name="node-1",  cpu_cores=0.4, ram_gb=0.5,
+                    carbon_intensity_gco2_kwh=380.0, avg_power_w=8.0,  network_type="fiber"),
+        NodeProfile(name="node-2",  cpu_cores=0.4, ram_gb=0.5,
+                    carbon_intensity_gco2_kwh=420.0, avg_power_w=9.0,  network_type="fiber"),
+        NodeProfile(name="node-3",  cpu_cores=0.6, ram_gb=1.0,
+                    carbon_intensity_gco2_kwh=490.0, avg_power_w=12.0, network_type="fiber"),
+        NodeProfile(name="node-4",  cpu_cores=0.6, ram_gb=1.0,
+                    carbon_intensity_gco2_kwh=530.0, avg_power_w=14.0, network_type="fiber"),
+        NodeProfile(name="node-5", cpu_cores=1.0, ram_gb=2.0,
+                    carbon_intensity_gco2_kwh=580.0, avg_power_w=20.0, network_type="fiber"),
+        NodeProfile(name="node-6", cpu_cores=1.0, ram_gb=2.0,
+                    carbon_intensity_gco2_kwh=620.0, avg_power_w=22.0, network_type="fiber"),
+        
+        # # TANS Showcase (Case Study) [1.0, 2.5, 3.5 req/s]
+        # NodeProfile(
+        #     name="node-1", 
+        #     cpu_cores=0.3,
+        #     ram_gb=0.512,
+        #     carbon_intensity_gco2_kwh=650.0,
+        #     avg_power_w=5.0,
+        #     network_type="4g_lte",
+        # ),
+        # NodeProfile(
+        #     name="node-2", 
+        #     cpu_cores=0.4, 
+        #     ram_gb=0.512,
+        #     carbon_intensity_gco2_kwh=600.0,
+        #     avg_power_w=8.0,
+        #     network_type="5g",
+        # ),
+        # NodeProfile(
+        #     name="node-3", 
+        #     cpu_cores=0.4, 
+        #     ram_gb=0.512,
+        #     carbon_intensity_gco2_kwh=550.0,
+        #     avg_power_w=8.0,
+        #     network_type="wifi",
+        # ),
+        # NodeProfile(
+        #     name="node-4", 
+        #     cpu_cores=0.6, 
+        #     ram_gb=1.0,
+        #     carbon_intensity_gco2_kwh=400.0,
+        #     avg_power_w=15.0,
+        #     network_type="fiber",
+        # ),
+        # NodeProfile(
+        #     name="node-5",
+        #     cpu_cores=1.0, 
+        #     ram_gb=2.0,
+        #     carbon_intensity_gco2_kwh=380.0,
+        #     avg_power_w=25.0,
+        #     network_type="fiber",
+        # ),
+        # NodeProfile(
+        #     name="node-6", 
+        #     cpu_cores=1.0, 
+        #     ram_gb=2.0,
+        #     carbon_intensity_gco2_kwh=15.0,
+        #     avg_power_w=25.0,
+        #     network_type="fiber",
+        # ),
+        
+        # # Overload Stress Test [3.5 req/s]
+        # NodeProfile(name="node-1", cpu_cores=0.4, ram_gb=0.5,
+        #             carbon_intensity_gco2_kwh=580.0, avg_power_w=5.0,  network_type="4g_lte"),
+        # NodeProfile(name="node-2", cpu_cores=0.4, ram_gb=0.5,
+        #             carbon_intensity_gco2_kwh=540.0, avg_power_w=6.0,  network_type="5g"),
+        # NodeProfile(name="node-3", cpu_cores=0.6, ram_gb=1.0,
+        #             carbon_intensity_gco2_kwh=450.0, avg_power_w=10.0, network_type="wifi"),
+        # NodeProfile(name="node-4", cpu_cores=0.6, ram_gb=1.0,
+        #             carbon_intensity_gco2_kwh=380.0, avg_power_w=12.0, network_type="fiber"),
+        # NodeProfile(name="node-5", cpu_cores=0.8, ram_gb=1.5,
+        #             carbon_intensity_gco2_kwh=280.0, avg_power_w=15.0, network_type="fiber"),
+        # NodeProfile(name="node-6", cpu_cores=0.8, ram_gb=1.5,
+        #             carbon_intensity_gco2_kwh=200.0, avg_power_w=18.0, network_type="fiber"),
+    ]
 
 
 # ---------------------------------------------------------------------------

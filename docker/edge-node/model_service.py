@@ -17,14 +17,12 @@ log = logging.getLogger("model_service")
 app = Flask(__name__)
 
 
-# Global PyTorch Initialization
 log.info("Loading PyTorch ResNet-50...")
 _full_model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-# use MobileNetV2 for faster inference during testing
+
 # _full_model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
 _full_model.eval()
 
-# Flatten the model into a sequential list of leaf modules (matching the profiler logic)
 _flat_modules = []
 for name, module in _full_model.named_modules():
     if len(list(module.children())) == 0:
@@ -34,17 +32,12 @@ log.info(f"Loaded {len(_flat_modules)} leaf modules.")
 
 # Execution Engine
 def execute_partition(layer_start: int, layer_end: int, input_shape: list) -> float:
-    """Extracts the assigned sub-model and runs a real tensor through it."""
-    
-    # Slice the PyTorch model dynamically based on the scheduler's partition assignment
     sub_model = nn.Sequential(*_flat_modules[layer_start : layer_end + 1])
     
-    # Generate a tensor of the exact shape outputted by the previous node
     dummy_input = torch.randn(*input_shape)
     
     t0 = time.perf_counter()
     with torch.no_grad():
-        # REAL COMPUTATION occurs here subject to Docker's cgroups constraints
         _ = sub_model(dummy_input)
     elapsed_ms = (time.perf_counter() - t0) * 1000
     
@@ -57,14 +50,12 @@ def infer():
     layer_start  = int(body.get("layer_start", 0))
     layer_end    = int(body.get("layer_end", 0))
     
-    # Parse the input shape string (e.g., "[1, 64, 56, 56]") sent by the orchestrator
     shape_str = body.get("input_shape", "[1, 3, 224, 224]")
     input_shape = json.loads(shape_str)
 
     log.info(f"Executing Partition {partition_id}: Layers {layer_start} -> {layer_end}")
 
     try:
-        # Run the real model
         exec_ms = execute_partition(layer_start, layer_end, input_shape)
         
         cpu = psutil.cpu_percent(interval=None)

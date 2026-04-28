@@ -1,43 +1,3 @@
-"""
-src/core/task_scheduler.py
---------------------------
-Transfer-Aware Node Selection (TANS) — the algorithmic "Delta" over AMP4EC.
-
-Background
-----------
-AMP4EC's NSA scores nodes on:
-  Total_Score = 0.2·S_R + 0.2·S_L + 0.1·S_P + 0.5·S_B              (Eq. 7)
-
-CarbonEdge adds a carbon efficiency score S_C:
-  Total_Score = wR·S_R + wL·S_L + wP·S_P + wB·S_B + wC·S_C          (Eq. 3)
-
-The "Delta" in this implementation — Transfer-Aware Node Selection (TANS) —
-extends the carbon score to account for *both* compute and data-transfer
-emissions:
-
-  Total_Carbon = (E_comp × CI_local) + (E_trans × CI_network)
-
-  SC_TANS = 1 / (1 + Total_Carbon)
-
-where:
-  E_comp  = P_node × T_avg / 3_600_000         (kWh, compute energy)
-  E_trans = size_mb / 1024 × coeff_network      (kWh, link transfer energy)
-  CI_local / CI_network = gCO₂/kWh for the regional grid
-
-Scheduling Modes (Table I, CarbonEdge)
----------------------------------------
-  Performance  : wC = 0.05  – prioritise fast nodes
-  Balanced     : wC = 0.30  – compromise
-  Green        : wC = 0.50  – minimise carbon
-  TANS-Green   : wC = 0.60  – transfer-aware green mode (novel)
-
-Node skipping rules (Algorithm 1, AMP4EC)
-------------------------------------------
-  • load  > 0.8  → overloaded, skip
-  • latency > threshold → too slow, skip
-  • insufficient resources → skip
-"""
-
 from __future__ import annotations
 
 import logging
@@ -45,12 +5,11 @@ import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from src.core.carbon_monitor import (
     TRANSFER_ENERGY_KWH_PER_GB,
     CarbonMonitor,
-    NodeCarbonState,
 )
 from src.core.model_partitioner import NodeProfile, Partition
 
@@ -64,7 +23,7 @@ class SchedulingMode(str, Enum):
     PERFORMANCE = "performance"
     BALANCED    = "balanced"
     GREEN       = "green"
-    TANS_GREEN  = "tans_green"   # Novel: transfer-aware green
+    TANS_GREEN  = "tans_green" 
 
 
 @dataclass(frozen=True)
@@ -73,7 +32,7 @@ class ModeWeights:
     wL: float   # current load
     wP: float   # historical performance
     wB: float   # balance / fairness
-    wC: float   # carbon efficiency (TANS-extended)
+    wC: float   # carbon efficiency 
 
 
 MODE_WEIGHTS: Dict[SchedulingMode, ModeWeights] = {
@@ -103,12 +62,12 @@ class LiveNodeState:
         if len(self.exec_time_history) > self.MAX_HISTORY:
             self.exec_time_history.pop(0)
         self.task_count = max(0, self.task_count - 1)
-        # heuristic load decay
+    
         self.current_load = max(0.0, self.current_load - 0.15)
 
     def avg_exec_time(self) -> float:
         if not self.exec_time_history:
-            return 200.0   # cold-start prior
+            return 200.0  
         return sum(self.exec_time_history) / len(self.exec_time_history)
 
     def mark_scheduled(self) -> None:
@@ -122,9 +81,7 @@ class LiveNodeState:
 
 def _score_resource(node: NodeProfile, live: LiveNodeState,
                     cpu_req: float = 0.1, mem_req_gb: float = 0.05) -> float:
-    """
-    S_R = (CPU_avail/CPU_req + MEM_avail/MEM_req) / 2    clamped to [0,1]
-    """
+ 
     cpu_avail = max(0.0, node.cpu_cores * (1.0 - live.current_load))
     mem_avail = max(0.0, node.ram_gb    * (1.0 - live.current_load))
     r_cpu = min(cpu_avail / cpu_req, 1.0) if cpu_req > 0 else 1.0
@@ -133,48 +90,18 @@ def _score_resource(node: NodeProfile, live: LiveNodeState,
 
 
 def _score_load(live: LiveNodeState) -> float:
-    """S_L = 1 − current_load"""
+   
     return 1.0 - live.current_load
 
 
 def _score_performance(live: LiveNodeState) -> float:
-    """S_P = 1 / (1 + avg_exec_time)   — smaller time → higher score"""
+    
     return 1.0 / (1.0 + live.avg_exec_time())
 
 
 def _score_balance(live: LiveNodeState) -> float:
     """S_B = 1 / (1 + task_count × 2)"""
     return 1.0 / (1.0 + live.task_count * 2)
-
-
-def _score_carbon_tans(
-    node: NodeProfile,
-    carbon_state: NodeCarbonState,
-    transfer_size_mb: float,
-) -> float:
-    """
-    TANS carbon score — accounts for both compute and transfer emissions.
-
-    Total_Carbon = E_comp × CI_local + E_trans × CI_network
-
-    S_C = 1 / (1 + Total_Carbon)
-
-    Both E values in kWh, CI in gCO₂/kWh → Total_Carbon in gCO₂.
-    """
-    # Compute energy estimate
-    e_comp = carbon_state.estimate_inference_energy()   # kWh
-
-    # Transfer energy estimate
-    size_gb  = transfer_size_mb / 1024.0
-    coeff    = TRANSFER_ENERGY_KWH_PER_GB.get(
-        node.network_type, TRANSFER_ENERGY_KWH_PER_GB["default"]
-    )
-    e_trans  = size_gb * coeff                          # kWh
-
-    ci = carbon_state.carbon_intensity_gco2_kwh         # gCO₂/kWh
-
-    total_carbon = (e_comp + e_trans) * ci              # gCO₂
-    return 1.0 / (1.0 + total_carbon)
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +135,8 @@ class TANSScheduler:
     Transfer-Aware Node Selection Scheduler.
     """
 
-    LATENCY_THRESHOLD_MS = 100.0   # skip nodes slower than this
-    LOAD_THRESHOLD       = 0.80    # skip nodes with load > 80 %
+    LATENCY_THRESHOLD_MS = 100.0  
+    LOAD_THRESHOLD       = 0.80   
 
     def __init__(
         self,
@@ -252,7 +179,7 @@ class TANSScheduler:
         decisions: List[SchedulingDecision] = []
         t_start = time.perf_counter()
 
-        prev_node_name = None  # FIX 3: Track the sender node
+        prev_node_name = None 
 
         for idx, part in enumerate(partitions):
             if idx == 0:
@@ -263,13 +190,13 @@ class TANSScheduler:
             decision = self._select_node(
                 partition=part,
                 incoming_transfer_mb=incoming_mb,
-                prev_node_name=prev_node_name, # Pass it to the selector
+                prev_node_name=prev_node_name,
                 cpu_req=cpu_req,
                 mem_req_gb=mem_req_gb,
             )
             decisions.append(decision)
             self._live[decision.selected_node].mark_scheduled()
-            prev_node_name = decision.selected_node # Update for next iteration
+            prev_node_name = decision.selected_node 
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000
         self._scheduling_overhead_ms.append(elapsed_ms)
@@ -282,7 +209,7 @@ class TANSScheduler:
         exec_time_ms: float,
         partition_id: int = -1,
     ) -> None:
-        """Call after a partition finishes executing on *node_name*."""
+       
         self._live[node_name].record_completion(exec_time_ms)
         self._monitor.record(node_name, exec_time_ms)
         log.debug("[tans] Completion: node=%s part=%d t=%.1f ms",
@@ -331,17 +258,14 @@ class TANSScheduler:
         best_comps: Dict[str, float] = {}
         best_carbon = 0.0
 
-        # FIX: Initialize the dictionary to hold candidate nodes before the loop
         eligible_nodes = {}
 
         for node_name, node in self._nodes.items():
             live   = self._live[node_name]
             carbon = self._monitor.nodes[node_name]
 
-            # (Scheduler side): If co-located, incoming transfer is 0
             actual_transfer_mb = incoming_transfer_mb if node_name != prev_node_name else 0.0
 
-            # Transfer relies on the SENDER'S network (the previous node)
             if prev_node_name and actual_transfer_mb > 0:
                 prev_node = self._nodes[prev_node_name]
                 net_type = getattr(prev_node, 'network_type', 'default').lower()
@@ -350,11 +274,9 @@ class TANSScheduler:
                 net_type = getattr(node, 'network_type', 'default').lower()
                 sender_ci = carbon.carbon_intensity_gco2_kwh
             
-            # Align perfectly with the Execution Engine's math
             mbps = 100.0 if net_type in ["5g", "4g_lte"] else 500.0
             transfer_delay_ms = ((actual_transfer_mb * 8.0) / mbps) * 1000.0
 
-            # Only filter based on base node health
             if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
                 continue
 
@@ -378,11 +300,9 @@ class TANSScheduler:
             e_comp = carbon.estimate_inference_energy()
             energy_per_gb = TRANSFER_ENERGY_KWH_PER_GB.get(net_type, TRANSFER_ENERGY_KWH_PER_GB["default"])
             
-            # All modes calculate true actual transfer carbon
             e_trans = (actual_transfer_mb / 1024.0) * energy_per_gb
             compute_only_carbon = e_comp * carbon.carbon_intensity_gco2_kwh
 
-            # full transfer-aware carbon (for TANS_GREEN)  
             total_carbon_eval   = compute_only_carbon + (e_trans * sender_ci)
             
             
@@ -406,12 +326,10 @@ class TANSScheduler:
             for node_name, metrics in eligible_nodes.items():
 
                 if self._mode != SchedulingMode.TANS_GREEN:
-                    # CarbonEdge-faithful: compute-only carbon, paper Eq. 4
                     sC = 1.0 / (1.0 + metrics["compute_only_carbon"])
                 else:
-                    # TANS-Green: transfer-aware carbon, min-max normalised
                     if max_carbon == min_carbon:
-                        sC = 1.0  # all nodes identical — treat as equally green
+                        sC = 1.0  
                     else:
                         sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
 
@@ -431,7 +349,6 @@ class TANSScheduler:
                         * metrics["reporting_energy_per_gb"]
                         * metrics["reporting_sender_ci"]
                     )
-        # Fallback if all nodes are overloaded/ineligible
         if best_node is None:
             best_node = min(self._live, key=lambda n: self._live[n].current_load)
             best_score = 0.0
@@ -471,9 +388,8 @@ if __name__ == "__main__":
         decisions = scheduler.schedule(parts)
         for d in decisions:
             print(f"  {d}")
-        # simulate completions with realistic exec times
         for d, p in zip(decisions, parts):
-            exec_ms = p.compute_cost_mflops / 100.0  # rough ms proxy
+            exec_ms = p.compute_cost_mflops / 100.0  
             scheduler.record_completion(d.selected_node, exec_ms, p.partition_id)
         print()
 

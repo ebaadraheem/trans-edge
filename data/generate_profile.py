@@ -7,7 +7,7 @@ from pathlib import Path
 def generate_profile():
     print("Loading PyTorch ResNet-50...")
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-    # use MobileNetV2 for faster inference during testing
+    
     # model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
     model.eval()
 
@@ -15,30 +15,26 @@ def generate_profile():
     layer_idx = 0
     cumulative_flops = 0.0
 
-    # Forward hook to intercept tensor shapes and calculate exact compute costs
     def hook(module, input_tensor, output_tensor, name):
         nonlocal layer_idx, cumulative_flops
         
-        # We only care about layers that output tensors
         if not isinstance(output_tensor, torch.Tensor):
             return
 
         in_shape = list(input_tensor[0].shape)
         out_shape = list(output_tensor.shape)
         
-        # Calculate memory footprint of the output tensor traveling to the next node
         out_mb = output_tensor.nelement() * output_tensor.element_size() / (1024 * 1024)
 
         flops = 0
-        # Convolution (most expensive): 
         if isinstance(module, nn.Conv2d):
             out_h, out_w = out_shape[2], out_shape[3]
             flops = out_shape[0] * module.out_channels * out_h * out_w * \
                     (module.in_channels // module.groups) * module.kernel_size[0] * module.kernel_size[1]
-        # Fully connected layers (less expensive):            
+            
         elif isinstance(module, nn.Linear):
             flops = out_shape[0] * module.in_features * module.out_features
-        # Elementwise ops (least expensive):    
+           
         elif isinstance(module, (nn.BatchNorm2d, nn.ReLU, nn.MaxPool2d, nn.AdaptiveAvgPool2d)):
             flops = output_tensor.nelement()  
 
@@ -56,7 +52,6 @@ def generate_profile():
         })
         layer_idx += 1
 
-    # Register hooks only on leaf modules, which correspond to actual layers in the profile
     handles = []
     for name, module in model.named_modules():
         if len(list(module.children())) == 0:
@@ -64,7 +59,6 @@ def generate_profile():
                 lambda m, i, o, n=name: hook(m, i, o, n)
             ))
 
-    # Run a real forward pass to trigger the hooks
     print("Running real forward pass to profile layers...")
     dummy_input = torch.randn(1, 3, 224, 224)
     with torch.no_grad():
