@@ -96,7 +96,7 @@ def _score_load(live: LiveNodeState) -> float:
 
 def _score_performance(live: LiveNodeState) -> float:
     
-    return 1.0 / (1.0 + live.avg_exec_time())
+    return 1.0 / (1.0 + (live.avg_exec_time() / 100.0))
 
 
 def _score_balance(live: LiveNodeState) -> float:
@@ -320,18 +320,28 @@ class TANSScheduler:
 
         # --- MIN-MAX NORMALIZATION & FINAL SELECTION ---
         if eligible_nodes:
-            min_carbon = min(n["raw_carbon"] for n in eligible_nodes.values())
-            max_carbon = max(n["raw_carbon"] for n in eligible_nodes.values())
+            # Min/Max for TANS (Transfer-Aware Carbon)
+            min_raw_c = min(n["raw_carbon"] for n in eligible_nodes.values())
+            max_raw_c = max(n["raw_carbon"] for n in eligible_nodes.values())
+            
+            # Min/Max for Baselines (Compute-Only Carbon)
+            min_comp_c = min(n["compute_only_carbon"] for n in eligible_nodes.values())
+            max_comp_c = max(n["compute_only_carbon"] for n in eligible_nodes.values())
 
             for node_name, metrics in eligible_nodes.items():
 
                 if self._mode != SchedulingMode.TANS_GREEN:
-                    sC = 1.0 / (1.0 + metrics["compute_only_carbon"])
+                    # Baseline CarbonEdge: Min-Max normalize the compute-only carbon
+                    if max_comp_c == min_comp_c:
+                        sC = 1.0  # all nodes identical — treat as equally green
+                    else:
+                        sC = 1.0 - ((metrics["compute_only_carbon"] - min_comp_c) / (max_comp_c - min_comp_c))
                 else:
-                    if max_carbon == min_carbon:
+                    # TANS-Green: Min-Max normalize the transfer-aware carbon
+                    if max_raw_c == min_raw_c:
                         sC = 1.0  
                     else:
-                        sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
+                        sC = 1.0 - ((metrics["raw_carbon"] - min_raw_c) / (max_raw_c - min_raw_c))
 
                 total = (w.wR * metrics["sR"] + w.wL * metrics["sL"] +
                         w.wP * metrics["sP"] + w.wB * metrics["sB"] + w.wC * sC)
@@ -349,6 +359,7 @@ class TANSScheduler:
                         * metrics["reporting_energy_per_gb"]
                         * metrics["reporting_sender_ci"]
                     )
+                    
         if best_node is None:
             best_node = min(self._live, key=lambda n: self._live[n].current_load)
             best_score = 0.0

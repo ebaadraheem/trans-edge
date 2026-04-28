@@ -17,11 +17,7 @@ log = logging.getLogger("docker_simulation")
 
 
 def get_nodes() -> list[NodeProfile]:
-    """
-    Three heterogeneous edge nodes with UK / USA / Sweden regional CI.
-    Matches the CarbonEdge paper's High / Medium / Low resource profiles
-    mapped to realistic national grid intensities.
-    """
+
     return build_default_nodes()
 
 # ---------------------------------------------------------------------------
