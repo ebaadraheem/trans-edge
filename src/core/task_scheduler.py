@@ -367,7 +367,11 @@ class TANSScheduler:
             # Calculate base scores
             sR = _score_resource(node, live, cpu_req, mem_req_gb)
             sL = _score_load(live)
-            sP = 1.0 / (1.0 + (transfer_delay_ms + live.avg_exec_time()) / 100.0)
+            
+            sP=_score_performance(live) 
+            if self._mode == SchedulingMode.TANS_GREEN:
+                sP = 1.0 / (1.0 + (live.avg_exec_time() + transfer_delay_ms) / 100.0)
+                 
             sB = _score_balance(live)
             
             # Calculate carbon metrics for this node
@@ -376,13 +380,17 @@ class TANSScheduler:
             
             # All modes calculate true actual transfer carbon
             e_trans = (actual_transfer_mb / 1024.0) * energy_per_gb
-            total_carbon_eval = (e_comp * carbon.carbon_intensity_gco2_kwh) + (e_trans * sender_ci)
+            compute_only_carbon = e_comp * carbon.carbon_intensity_gco2_kwh
+
+            # full transfer-aware carbon (for TANS_GREEN)  
+            total_carbon_eval   = compute_only_carbon + (e_trans * sender_ci)
             
             
             # Store metrics for Min-Max normalization later
             eligible_nodes[node_name] = {
                 "sR": sR, "sL": sL, "sP": sP, "sB": sB,
-                "raw_carbon": total_carbon_eval,
+                "raw_carbon": total_carbon_eval,     
+                "compute_only_carbon": compute_only_carbon, 
                 "reporting_e_comp": e_comp,
                 "reporting_ci": carbon.carbon_intensity_gco2_kwh,
                 "reporting_transfer_mb": actual_transfer_mb,
@@ -397,15 +405,13 @@ class TANSScheduler:
             max_carbon = max(n["raw_carbon"] for n in eligible_nodes.values())
             
             for node_name, metrics in eligible_nodes.items():
-                if max_carbon == min_carbon:
-                    sC = 1.0  # Fallback if all nodes have identical carbon impact
-                else:
-                    # Invert: lowest carbon gets 1.0 score, highest gets 0.0 score
-                    sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
                 
                 # If NOT in TANS-Green mode, revert to standard CarbonEdge un-normalized equation for baseline fairness
                 if self._mode != SchedulingMode.TANS_GREEN:
-                    sC = 1.0 / (1.0 + metrics["raw_carbon"])
+                    sC = 1.0 / (1.0 + metrics["compute_only_carbon"])
+                else:
+                    # min-max normalization on full transfer-aware carbon
+                    sC = 1.0 - ((metrics["raw_carbon"] - min_carbon) / (max_carbon - min_carbon))
 
                 # Calculate weighted total
                 total = w.wR*metrics["sR"] + w.wL*metrics["sL"] + w.wP*metrics["sP"] + w.wB*metrics["sB"] + w.wC*sC
