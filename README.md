@@ -46,14 +46,14 @@ By anticipating and avoiding disastrous network transfers, the TANS scheduler pr
 ### Prerequisites
 * Python 3.9+
 * Docker Desktop / Engine (required for real container simulation)
-* PyTorch 2.2+ (for model profiling)[cite: 4]
+* PyTorch 2.2+ (for model profiling)
 
 ### Installation
 
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/yourusername/tans-edge-computing.git](https://github.com/yourusername/tans-edge-computing.git)
-   cd tans-edge-computing
+   git clone https://github.com/ebaadraheem/TRACE.git
+   cd TRACE
    ```
 2. Install dependencies:
   ```bash
