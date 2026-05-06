@@ -25,7 +25,7 @@ class SimConfig:
     arrival_rate_rps: float = 3.0          # average requests per second
     num_requests:     int   = 50           # total inferences to simulate
 
-    max_concurrent_per_node: int = 2
+    max_concurrent_per_node: int = 1
 
     ms_per_100_mflops: float = 25.0
 
@@ -333,6 +333,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmpdir:
         cfg = SimConfig(
             arrival_rate_rps=5.0,
+            max_concurrent_per_node=1,
             num_requests=30,
             mode=SchedulingMode.TANS_GREEN,
             results_dir=Path(tmpdir),
