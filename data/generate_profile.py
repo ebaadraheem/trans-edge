@@ -26,19 +26,19 @@ def generate_profile():
         in_shape = list(input_tensor[0].shape)
         out_shape = list(output_tensor.shape)
         
-        out_mb = output_tensor.nelement() * output_tensor.element_size() / (1024 * 1024)
+        # output size in MB for a SINGLE sample (ignore batch dim)
+        out_mb = output_tensor[0].nelement() * output_tensor.element_size() / (1024 * 1024)
 
         flops = 0
         if isinstance(module, nn.Conv2d):
             out_h, out_w = out_shape[2], out_shape[3]
-            flops = out_shape[0] * module.out_channels * out_h * out_w * \
+            # Multiply by 2 for multiply‑add; no batch factor
+            flops = 2 * out_h * out_w * module.out_channels * \
                     (module.in_channels // module.groups) * module.kernel_size[0] * module.kernel_size[1]
-            
         elif isinstance(module, nn.Linear):
-            flops = out_shape[0] * module.in_features * module.out_features
-           
+            flops = 2 * module.in_features * module.out_features
         elif isinstance(module, (nn.BatchNorm2d, nn.ReLU, nn.MaxPool2d, nn.AdaptiveAvgPool2d)):
-            flops = output_tensor.nelement()  
+            flops = output_tensor[0].nelement()   # per‑sample element count
 
         mflops = flops / 1e6
         cumulative_flops += mflops

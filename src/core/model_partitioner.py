@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+
 import pandas as pd
 
 @dataclass
@@ -116,8 +117,21 @@ class ModelPartitioner:
         # --- greedy boundary placement ---
         boundaries = self._greedy_boundaries(target_costs)
 
+        # Force first partition boundary to a layer with significant output tensor
+        first_layer = str(self._df["layer_name"].iloc[0]).lower()
+        if "vgg" in first_layer:
+            boundaries[0] = max(boundaries[0], 5)   # ~12.6 MB
+        elif "resnet" in first_layer:
+            boundaries[0] = max(boundaries[0], 10)  # ~3–5 MB
+
         # --- iterative refinement to reduce L ---
         boundaries = self._refine_boundaries(boundaries)
+
+        # Re‑apply forced boundary (refinement might have moved it back)
+        if "vgg" in first_layer:
+            boundaries[0] = max(boundaries[0], 5)
+        elif "resnet" in first_layer:
+            boundaries[0] = max(boundaries[0], 10)
 
         # --- build Partition objects ---
         partitions = self._build_partitions(boundaries, nodes, num_partitions)
@@ -309,88 +323,22 @@ class ModelPartitioner:
 
 def build_default_nodes() -> List[NodeProfile]:
     return [
-        # # Baseline Validation (Control) [1.0, 2.5, 3.5 req/s]
-        # NodeProfile(name="node-1",  cpu_cores=0.4, ram_gb=0.5,
-        #             carbon_intensity_gco2_kwh=380.0, avg_power_w=8.0,  network_type="fiber"),
-        # NodeProfile(name="node-2",  cpu_cores=0.4, ram_gb=0.5,
-        #             carbon_intensity_gco2_kwh=420.0, avg_power_w=9.0,  network_type="fiber"),
-        # NodeProfile(name="node-3",  cpu_cores=0.6, ram_gb=1.0,
-        #             carbon_intensity_gco2_kwh=490.0, avg_power_w=12.0, network_type="fiber"),
-        # NodeProfile(name="node-4",  cpu_cores=0.6, ram_gb=1.0,
-        #             carbon_intensity_gco2_kwh=530.0, avg_power_w=14.0, network_type="fiber"),
-        # NodeProfile(name="node-5", cpu_cores=1.0, ram_gb=2.0,
-        #             carbon_intensity_gco2_kwh=580.0, avg_power_w=20.0, network_type="fiber"),
-        # NodeProfile(name="node-6", cpu_cores=1.0, ram_gb=2.0,
-        #             carbon_intensity_gco2_kwh=620.0, avg_power_w=22.0, network_type="fiber"),
-        
-        
-        
-        # # TANS Showcase (Case Study) [1.0, 2.5, 3.5 req/s]
-        # NodeProfile(
-        #     name="node-1", 
-        #     cpu_cores=0.3,
-        #     ram_gb=0.512,
-        #     carbon_intensity_gco2_kwh=650.0,
-        #     avg_power_w=5.0,
-        #     network_type="4g_lte",
-        # ),
-        # NodeProfile(
-        #     name="node-2", 
-        #     cpu_cores=0.4, 
-        #     ram_gb=0.512,
-        #     carbon_intensity_gco2_kwh=600.0,
-        #     avg_power_w=8.0,
-        #     network_type="5g",
-        # ),
-        # NodeProfile(
-        #     name="node-3", 
-        #     cpu_cores=0.4, 
-        #     ram_gb=0.512,
-        #     carbon_intensity_gco2_kwh=550.0,
-        #     avg_power_w=8.0,
-        #     network_type="wifi",
-        # ),
-        # NodeProfile(
-        #     name="node-4", 
-        #     cpu_cores=0.6, 
-        #     ram_gb=1.0,
-        #     carbon_intensity_gco2_kwh=400.0,
-        #     avg_power_w=15.0,
-        #     network_type="fiber",
-        # ),
-        # NodeProfile(
-        #     name="node-5",
-        #     cpu_cores=1.0, 
-        #     ram_gb=2.0,
-        #     carbon_intensity_gco2_kwh=380.0,
-        #     avg_power_w=25.0,
-        #     network_type="fiber",
-        # ),
-        # NodeProfile(
-        #     name="node-6", 
-        #     cpu_cores=1.0, 
-        #     ram_gb=2.0,
-        #     carbon_intensity_gco2_kwh=15.0,
-        #     avg_power_w=25.0,
-        #     network_type="fiber",
-        # ),
-        
-        
-        
-        # Overload Stress Test [3.5 req/s]
-        NodeProfile(name="node-1", cpu_cores=0.4, ram_gb=0.5,
-                    carbon_intensity_gco2_kwh=580.0, avg_power_w=5.0,  network_type="4g_lte"),
-        NodeProfile(name="node-2", cpu_cores=0.4, ram_gb=0.5,
-                    carbon_intensity_gco2_kwh=540.0, avg_power_w=6.0,  network_type="5g"),
-        NodeProfile(name="node-3", cpu_cores=0.6, ram_gb=1.0,
-                    carbon_intensity_gco2_kwh=450.0, avg_power_w=10.0, network_type="wifi"),
-        NodeProfile(name="node-4", cpu_cores=0.6, ram_gb=1.0,
-                    carbon_intensity_gco2_kwh=380.0, avg_power_w=12.0, network_type="fiber"),
-        NodeProfile(name="node-5", cpu_cores=0.8, ram_gb=1.5,
-                    carbon_intensity_gco2_kwh=280.0, avg_power_w=15.0, network_type="fiber"),
-        NodeProfile(name="node-6", cpu_cores=0.8, ram_gb=1.5,
-                    carbon_intensity_gco2_kwh=200.0, avg_power_w=18.0, network_type="fiber"),
-    ]
+        # “Classical Trade‑Off” (Uniform Fiber)
+# NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="fiber"),
+# NodeProfile(name="node-2", cpu_cores=0.9, ram_gb=1.8, carbon_intensity_gco2_kwh=580, avg_power_w=22, network_type="fiber"),
+# NodeProfile(name="node-3", cpu_cores=0.8, ram_gb=1.6, carbon_intensity_gco2_kwh=450, avg_power_w=18, network_type="fiber"),
+# NodeProfile(name="node-4", cpu_cores=0.7, ram_gb=1.4, carbon_intensity_gco2_kwh=350, avg_power_w=15, network_type="fiber"),
+# NodeProfile(name="node-5", cpu_cores=0.65, ram_gb=1.2, carbon_intensity_gco2_kwh=250, avg_power_w=15, network_type="fiber"),
+# NodeProfile(name="node-6", cpu_cores=0.6, ram_gb=1.0, carbon_intensity_gco2_kwh=200, avg_power_w=15, network_type="fiber"),
+
+        # “Transfer Trap” (Heterogeneous Networks)
+NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="4g_lte"),
+NodeProfile(name="node-2", cpu_cores=0.9, ram_gb=1.8, carbon_intensity_gco2_kwh=580, avg_power_w=22, network_type="5g"),
+NodeProfile(name="node-3", cpu_cores=0.8, ram_gb=1.6, carbon_intensity_gco2_kwh=450, avg_power_w=18, network_type="wifi"),
+NodeProfile(name="node-4", cpu_cores=0.7, ram_gb=1.4, carbon_intensity_gco2_kwh=350, avg_power_w=15, network_type="fiber"),
+NodeProfile(name="node-5", cpu_cores=0.65, ram_gb=1.2, carbon_intensity_gco2_kwh=250, avg_power_w=15, network_type="fiber"),
+NodeProfile(name="node-6", cpu_cores=0.6, ram_gb=1.0, carbon_intensity_gco2_kwh=200, avg_power_w=15, network_type="fiber"),
+          ]
 
 
 # ---------------------------------------------------------------------------
