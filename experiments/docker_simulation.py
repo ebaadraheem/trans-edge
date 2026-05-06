@@ -163,7 +163,7 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     num_requests = 10 if args.quick else args.requests
-    ms_calib     = 5.0 if args.quick else 25.0  
+    ms_calib = 5.0 if args.quick else 6.0  
 
     if args.mode:
         modes = [SchedulingMode(args.mode)]

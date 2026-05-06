@@ -6,11 +6,11 @@ from pathlib import Path
 
 def generate_profile():
     print("Loading PyTorch ResNet-50...")
-    # model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
     
     # model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
     # import vgg16 for comparison
-    model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
+    model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    # model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
     model.eval()
 
     records = []

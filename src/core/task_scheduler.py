@@ -97,13 +97,6 @@ def _score_performance(live: LiveNodeState) -> float:
     return 1.0 / (1.0 + (live.avg_exec_time() / 100.0))
 
 
-def _score_balance(live: LiveNodeState) -> float:
-    # same bandwidth map used consistently
-    bandwidth_map = {"4g_lte": 50.0, "5g": 100.0, "wifi": 100.0, "fiber": 500.0}
-    B_max = max(bandwidth_map.values())
-    sB = bandwidth_map.get(live.node_name, 100.0) / B_max
-
-
 # ---------------------------------------------------------------------------
 # Scheduling result
 # ---------------------------------------------------------------------------

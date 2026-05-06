@@ -114,24 +114,43 @@ class ModelPartitioner:
         fractions   = _capability_fractions(nodes)
         target_costs = self._compute_targets(fractions, num_partitions)
 
-        # --- greedy boundary placement ---
+                # --- greedy boundary placement ---
+                # --- greedy boundary placement ---
         boundaries = self._greedy_boundaries(target_costs)
 
-        # Force first partition boundary to a layer with significant output tensor
+        # -------- Transfer‑Trap boundary override ----------
+        total_mflops = self._total_flops()
         first_layer = str(self._df["layer_name"].iloc[0]).lower()
-        if "vgg" in first_layer:
-            boundaries[0] = max(boundaries[0], 5)   # ~12.6 MB
-        elif "resnet" in first_layer:
-            boundaries[0] = max(boundaries[0], 10)  # ~3–5 MB
+        forced_end = None
 
-        # --- iterative refinement to reduce L ---
+        if total_mflops > 20000:                     # VGG16
+            forced_end = 3                           # after features.2 → 12.25 MB
+        elif total_mflops < 10000 and total_mflops > 1000:   # ResNet-50 (≈8199 MFLOPs)
+            forced_end = 11                          # after layer1.0.conv3 → 3.0625 MB
+        elif total_mflops < 1000 and "features" in first_layer:  # MobileNetV2 (≈300 MFLOPs)
+            forced_end = 4                           # after the second InvertedResidual block (~0.5–1 MB)
+        if forced_end is not None:
+            cum_cost = self._df.iloc[:forced_end]["compute_cost_mflops"].sum()
+            remaining = total_mflops - cum_cost
+            if num_partitions > 1 and sum(target_costs[1:]) > 0:
+                ratio_1 = target_costs[1] / sum(target_costs[1:])
+                ratio_2 = target_costs[2] / sum(target_costs[1:]) if num_partitions > 2 else 0.0
+            else:
+                ratio_1, ratio_2 = 0.5, 0.5
+            new_targets = [cum_cost, remaining * ratio_1, remaining * ratio_2]
+            print(f"[DEBUG] new_targets={new_targets}")
+            target_costs = new_targets
+            boundaries = self._greedy_boundaries(target_costs)
+            print(f"[DEBUG] boundaries after override: {boundaries}")
+
+        # --- iterative refinement ---
         boundaries = self._refine_boundaries(boundaries)
+        print(f"[DEBUG] boundaries after refinement: {boundaries}")
 
-        # Re‑apply forced boundary (refinement might have moved it back)
-        if "vgg" in first_layer:
-            boundaries[0] = max(boundaries[0], 5)
-        elif "resnet" in first_layer:
-            boundaries[0] = max(boundaries[0], 10)
+        # Re‑lock the first boundary
+        if forced_end is not None:
+            boundaries[0] = forced_end
+            print(f"[DEBUG] after re-lock, boundaries: {boundaries}")
 
         # --- build Partition objects ---
         partitions = self._build_partitions(boundaries, nodes, num_partitions)
