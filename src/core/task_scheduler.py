@@ -81,13 +81,11 @@ class LiveNodeState:
 
 def _score_resource(node: NodeProfile, live: LiveNodeState,
                     cpu_req: float = 0.1, mem_req_gb: float = 0.05) -> float:
- 
     cpu_avail = max(0.0, node.cpu_cores * (1.0 - live.current_load))
     mem_avail = max(0.0, node.ram_gb    * (1.0 - live.current_load))
-    r_cpu = min(cpu_avail / cpu_req, 1.0) if cpu_req > 0 else 1.0
-    r_mem = min(mem_avail / mem_req_gb, 1.0) if mem_req_gb > 0 else 1.0
+    r_cpu = cpu_avail / node.cpu_cores
+    r_mem = mem_avail / node.ram_gb
     return (r_cpu + r_mem) / 2.0
-
 
 def _score_load(live: LiveNodeState) -> float:
    
@@ -100,8 +98,10 @@ def _score_performance(live: LiveNodeState) -> float:
 
 
 def _score_balance(live: LiveNodeState) -> float:
-    """S_B = 1 / (1 + task_count × 2)"""
-    return 1.0 / (1.0 + live.task_count * 2)
+    # same bandwidth map used consistently
+    bandwidth_map = {"4g_lte": 50.0, "5g": 100.0, "wifi": 100.0, "fiber": 500.0}
+    B_max = max(bandwidth_map.values())
+    sB = bandwidth_map.get(live.node_name, 100.0) / B_max
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +277,8 @@ class TANSScheduler:
             mbps = 100.0 if net_type in ["5g", "4g_lte"] else 500.0
             transfer_delay_ms = ((actual_transfer_mb * 8.0) / mbps) * 1000.0
 
-            if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
-                continue
+            # if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
+            #     continue
 
             # Resource sufficiency check
             cpu_avail = node.cpu_cores * (1.0 - live.current_load)
@@ -294,7 +294,10 @@ class TANSScheduler:
             if self._mode == SchedulingMode.TANS_GREEN:
                 sP = 1.0 / (1.0 + (live.avg_exec_time() + transfer_delay_ms) / 100.0)
                  
-            sB = _score_balance(live)
+            # Bandwidth score exactly as in Algorithm 1
+            _bw_map = {"4g_lte": 50.0, "5g": 100.0, "wifi": 100.0, "fiber": 500.0}
+            B_max = max(_bw_map.values())
+            sB = _bw_map.get(node.network_type.lower(), 100.0) / B_max
             
             # Calculate carbon metrics for this node
             e_comp = carbon.estimate_inference_energy()

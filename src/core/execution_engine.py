@@ -279,11 +279,16 @@ class CarbonEdgeEngine:
 
     @staticmethod
     def _transfer_latency_ms(size_mb: float, node: NodeProfile) -> float:
-   
         if size_mb <= 0:
             return 0.0
-        mbps = 100.0 if node.network_type == "5G" else 500.0
-        return size_mb * 8 / mbps * 1000   # ms
+        bandwidth_map = {
+            "4g_lte": 50.0,    # slowest
+            "5g": 100.0,
+            "wifi": 100.0,
+            "fiber": 500.0     # fast
+        }
+        mbps = bandwidth_map.get(node.network_type.lower(), 100.0)
+        return size_mb * 8 / mbps * 1000
 
     @staticmethod
     def _transfer_coeff(node: NodeProfile) -> float:
