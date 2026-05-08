@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import csv
@@ -20,21 +19,21 @@ log = logging.getLogger(__name__)
 class InferenceRecord:
     timestamp_s:             float
     run_id:                  str
-    mode:                    str         
-    inference_id:            int         
+    mode:                    str
+    inference_id:            int
     node:                    str
     partition_id:            int
     latency_ms:              float
-    throughput_rps:          float       
-    energy_kwh:              float       
-    carbon_gco2:             float       
+    throughput_rps:          float
+    energy_kwh:              float
+    carbon_gco2:             float
     compute_carbon_gco2:     float
     transfer_carbon_gco2:    float
     transfer_size_mb:        float
     network_type:            str
     ci_gco2_kwh:             float
     scheduling_overhead_ms:  float
-    cumulative_carbon_gco2:  float       
+    cumulative_carbon_gco2:  float
 
 
 @dataclass
@@ -50,10 +49,10 @@ class RunSummary:
     avg_throughput_rps:      float
     total_energy_kwh:        float
     total_carbon_gco2:       float
-    carbon_efficiency:       float      
+    carbon_efficiency:       float
     avg_scheduling_oh_ms:    float
     duration_s:              float
-    nodes_used:              str        
+    nodes_used:              str
 
 
 # ---------------------------------------------------------------------------
@@ -115,12 +114,15 @@ class MetricsLogger:
         network_type: str,
         ci_gco2_kwh: float,
         scheduling_overhead_ms: float = 0.0,
+        carbon_gco2: Optional[float] = None,
     ) -> InferenceRecord:
-        total_carbon = compute_carbon_gco2 + transfer_carbon_gco2
+        # If a request-level carbon is provided, use it; otherwise sum components
+        if carbon_gco2 is None:
+            carbon_gco2 = compute_carbon_gco2 + transfer_carbon_gco2
 
         with self._lock:
             self._inf_id       += 1
-            self._cum_carbon   += total_carbon
+            self._cum_carbon   += carbon_gco2
             self._total_energy += energy_kwh
             self._nodes_used.add(node)
             self._latencies.append(latency_ms)
@@ -138,7 +140,7 @@ class MetricsLogger:
                 latency_ms=           round(latency_ms, 4),
                 throughput_rps=       round(tput, 4),
                 energy_kwh=           round(energy_kwh, 10),
-                carbon_gco2=          round(total_carbon, 10),
+                carbon_gco2=          round(carbon_gco2, 10),
                 compute_carbon_gco2=  round(compute_carbon_gco2, 10),
                 transfer_carbon_gco2= round(transfer_carbon_gco2, 10),
                 transfer_size_mb=     round(transfer_size_mb, 6),
@@ -222,9 +224,10 @@ class MetricsLogger:
 
         sorted_lat = sorted(self._latencies)
         p95_idx    = max(0, int(0.95 * n) - 1)
-        
-        total_requests = n / 3.0 
-        
+
+        # Each log_inference now corresponds to one request
+        total_requests = n
+
         if sim_time_ms > 0:
             sim_time_seconds = sim_time_ms / 1000.0
             true_throughput_rps = total_requests / sim_time_seconds
@@ -239,8 +242,8 @@ class MetricsLogger:
             avg_latency_ms=       round(sum(self._latencies) / n, 4),
             p95_latency_ms=       round(sorted_lat[p95_idx], 4),
             max_latency_ms=       round(sorted_lat[-1], 4),
-            total_throughput_rps= round(true_throughput_rps, 4), 
-            avg_throughput_rps=   round(true_throughput_rps, 4), 
+            total_throughput_rps= round(true_throughput_rps, 4),
+            avg_throughput_rps=   round(true_throughput_rps, 4),
             total_energy_kwh=     round(self._total_energy, 10),
             total_carbon_gco2=    round(self._cum_carbon, 10),
             carbon_efficiency=    round(n / self._cum_carbon, 4)

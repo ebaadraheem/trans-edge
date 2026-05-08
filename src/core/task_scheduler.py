@@ -267,7 +267,13 @@ class TANSScheduler:
                 net_type = getattr(node, 'network_type', 'default').lower()
                 sender_ci = carbon.carbon_intensity_gco2_kwh
             
-            mbps = 100.0 if net_type in ["5g", "4g_lte"] else 500.0
+            bandwidth_map = {
+                "4g_lte": 50.0,    
+                "5g": 100.0,
+                "wifi": 100.0,
+                "fiber": 500.0     
+                    }
+            mbps = bandwidth_map.get(net_type, 100.0)
             transfer_delay_ms = ((actual_transfer_mb * 8.0) / mbps) * 1000.0
 
             # if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:

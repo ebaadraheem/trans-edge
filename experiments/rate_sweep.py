@@ -17,9 +17,8 @@ from src.core.model_partitioner import NodeProfile
 
 # Which model profile to use
 PROFILE_CSV = Path("data/resnet50_profile.csv")
-MODEL_NAME = "vgg16"          # used for output filename
+MODEL_NAME = "mobilenetv2"          # used for output filename
 
-# Node configuration (uncomment the desired set)
 # Heterogeneous nodes (fast CPUs on slow wireless, slower CPUs on fast fiber)
 NODES = [
 NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="4g_lte"),

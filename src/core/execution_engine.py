@@ -146,67 +146,67 @@ class CarbonEdgeEngine:
             yield self._env.timeout(inter_ms)
 
     def _inference_pipeline(self, req: InferenceRequest):
-        
-        total_latency    = 0.0
-        total_carbon     = 0.0
-        sched_t0         = time.perf_counter()
-
+        sched_t0 = time.perf_counter()
         decisions = self._scheduler.schedule(req.partitions)
         sched_oh_ms = (time.perf_counter() - sched_t0) * 1000
 
+        total_carbon = 0.0
+        total_energy = 0.0               # NEW: accumulate total energy
+
         for i, (part, decision) in enumerate(zip(req.partitions, decisions)):
             node_name = decision.selected_node
-            pool      = self._pools[node_name]
+            pool = self._pools[node_name]
             node_prof = next(n for n in self._nodes if n.name == node_name)
-            ci        = self._monitor.nodes[node_name].carbon_intensity_gco2_kwh
+            ci = self._monitor.nodes[node_name].carbon_intensity_gco2_kwh
 
-            # ---- resource acquisition ----
+            # ---- resource acquisition (includes waiting time) ----
             with pool.request() as req_token:
-                yield req_token    
+                yield req_token
 
                 # ---- compute ----
                 exec_ms = self._exec_time_ms(part, node_prof)
                 yield self._env.timeout(exec_ms)
 
-                total_latency += exec_ms
-
                 self._scheduler.record_completion(node_name, exec_ms, part.partition_id)
 
-                e_comp  = self._monitor.nodes[node_name].estimate_inference_energy(exec_ms)
-                c_comp  = e_comp * ci
+                e_comp = self._monitor.nodes[node_name].estimate_inference_energy(exec_ms)
+                c_comp = e_comp * ci
 
+                # Determine if next partition is colocated
                 is_colocated = False
                 if i + 1 < len(decisions):
                     next_node = decisions[i + 1].selected_node
                     if next_node == node_name:
                         is_colocated = True
 
-                xfer_mb    = part.output_tensor_size_mb if not is_colocated else 0.0
-                
-                xfer_ms    = self._transfer_latency_ms(xfer_mb, node_prof)
-                c_trans    = self._monitor.estimate_transfer_carbon(node_name, xfer_mb)
+                xfer_mb = part.output_tensor_size_mb if not is_colocated else 0.0
+                xfer_ms = self._transfer_latency_ms(xfer_mb, node_prof)
+                c_trans = self._monitor.estimate_transfer_carbon(node_name, xfer_mb)
                 e_trans_kwh = (xfer_mb / 1024.0) * self._transfer_coeff(node_prof)
 
                 if xfer_ms > 0:
                     yield self._env.timeout(xfer_ms)
-                    total_latency += xfer_ms
 
                 total_carbon += c_comp + c_trans
+                total_energy += e_comp + e_trans_kwh    # accumulate
 
-                # ---- log metrics ----
-                self._logger.log_inference(
-                    node=node_name,
-                    partition_id=part.partition_id,
-                    latency_ms=exec_ms + xfer_ms,
-                    energy_kwh=e_comp + e_trans_kwh,
-                    compute_carbon_gco2=c_comp,
-                    transfer_carbon_gco2=c_trans,
-                    transfer_size_mb=xfer_mb,
-                    network_type=node_prof.network_type,
-                    ci_gco2_kwh=ci,
-                    scheduling_overhead_ms=sched_oh_ms if part.partition_id == 0
-                                           else 0.0,
-                )
+        # ---- end‑to‑end latency includes all waiting + service + transfer ----
+        total_latency = self._env.now - req.arrival_time
+
+        # Log one record per request
+        self._logger.log_inference(
+            node="aggregate",
+            partition_id=-1,
+            latency_ms=total_latency,
+            energy_kwh=total_energy,               # accurate energy sum
+            compute_carbon_gco2=0.0,
+            transfer_carbon_gco2=0.0,
+            transfer_size_mb=0.0,
+            network_type="",
+            ci_gco2_kwh=0.0,
+            scheduling_overhead_ms=sched_oh_ms,
+            carbon_gco2=total_carbon,
+        )
 
         self._completed += 1
         log.debug(
@@ -282,10 +282,10 @@ class CarbonEdgeEngine:
         if size_mb <= 0:
             return 0.0
         bandwidth_map = {
-            "4g_lte": 50.0,    # slowest
+            "4g_lte": 50.0,    
             "5g": 100.0,
             "wifi": 100.0,
-            "fiber": 500.0     # fast
+            "fiber": 500.0     
         }
         mbps = bandwidth_map.get(node.network_type.lower(), 100.0)
         return size_mb * 8 / mbps * 1000
