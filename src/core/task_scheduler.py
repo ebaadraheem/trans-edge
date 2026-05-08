@@ -287,10 +287,14 @@ class TANSScheduler:
             if self._mode == SchedulingMode.TANS_GREEN:
                 sP = 1.0 / (1.0 + (live.avg_exec_time() + transfer_delay_ms) / 100.0)
                  
-            # Bandwidth score exactly as in Algorithm 1
-            _bw_map = {"4g_lte": 50.0, "5g": 100.0, "wifi": 100.0, "fiber": 500.0}
-            B_max = max(_bw_map.values())
-            sB = _bw_map.get(node.network_type.lower(), 100.0) / B_max
+                 
+            if self._mode == SchedulingMode.TANS_GREEN:
+                _bw_map = {"4g_lte": 50.0, "5g": 100.0, "wifi": 100.0, "fiber": 500.0}
+                B_max = max(_bw_map.values())
+                sB = _bw_map.get(node.network_type.lower(), 100.0) / B_max
+            else:
+                # Original CarbonEdge fairness/balance score
+                sB = 1.0 / (1.0 + live.task_count * 2)
             
             # Calculate carbon metrics for this node
             e_comp = carbon.estimate_inference_energy()

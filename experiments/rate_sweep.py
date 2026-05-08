@@ -21,30 +21,30 @@ MODEL_NAME = "vgg16"          # used for output filename
 
 # Node configuration (uncomment the desired set)
 # Heterogeneous nodes (fast CPUs on slow wireless, slower CPUs on fast fiber)
-# NODES = [
-# NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="4g_lte"),
-# NodeProfile(name="node-2", cpu_cores=0.9, ram_gb=1.8, carbon_intensity_gco2_kwh=580, avg_power_w=22, network_type="5g"),
-# NodeProfile(name="node-3", cpu_cores=0.8, ram_gb=1.6, carbon_intensity_gco2_kwh=450, avg_power_w=18, network_type="wifi"),
-# NodeProfile(name="node-4", cpu_cores=0.7, ram_gb=1.4, carbon_intensity_gco2_kwh=350, avg_power_w=15, network_type="fiber"),
-# NodeProfile(name="node-5", cpu_cores=0.65, ram_gb=1.2, carbon_intensity_gco2_kwh=250, avg_power_w=15, network_type="fiber"),
-# NodeProfile(name="node-6", cpu_cores=0.6, ram_gb=1.0, carbon_intensity_gco2_kwh=200, avg_power_w=15, network_type="fiber"),
- 
-# ]
-NETWORK_TYPE = "homo"
-
-# Homogeneous nodes (all fiber) – uncomment below and comment the above block
 NODES = [
-NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="fiber"),
-NodeProfile(name="node-2", cpu_cores=0.9, ram_gb=1.8, carbon_intensity_gco2_kwh=580, avg_power_w=22, network_type="fiber"),
-NodeProfile(name="node-3", cpu_cores=0.8, ram_gb=1.6, carbon_intensity_gco2_kwh=450, avg_power_w=18, network_type="fiber"),
+NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="4g_lte"),
+NodeProfile(name="node-2", cpu_cores=0.9, ram_gb=1.8, carbon_intensity_gco2_kwh=580, avg_power_w=22, network_type="5g"),
+NodeProfile(name="node-3", cpu_cores=0.8, ram_gb=1.6, carbon_intensity_gco2_kwh=450, avg_power_w=18, network_type="wifi"),
 NodeProfile(name="node-4", cpu_cores=0.7, ram_gb=1.4, carbon_intensity_gco2_kwh=350, avg_power_w=15, network_type="fiber"),
 NodeProfile(name="node-5", cpu_cores=0.65, ram_gb=1.2, carbon_intensity_gco2_kwh=250, avg_power_w=15, network_type="fiber"),
 NodeProfile(name="node-6", cpu_cores=0.6, ram_gb=1.0, carbon_intensity_gco2_kwh=200, avg_power_w=15, network_type="fiber"),
+ 
 ]
+NETWORK_TYPE = "hetero"
+
+# Homogeneous nodes (all fiber) – uncomment below and comment the above block
+# NODES = [
+# NodeProfile(name="node-1", cpu_cores=1.0, ram_gb=2.0, carbon_intensity_gco2_kwh=620, avg_power_w=25, network_type="fiber"),
+# NodeProfile(name="node-2", cpu_cores=0.9, ram_gb=1.8, carbon_intensity_gco2_kwh=580, avg_power_w=22, network_type="fiber"),
+# NodeProfile(name="node-3", cpu_cores=0.8, ram_gb=1.6, carbon_intensity_gco2_kwh=450, avg_power_w=18, network_type="fiber"),
+# NodeProfile(name="node-4", cpu_cores=0.7, ram_gb=1.4, carbon_intensity_gco2_kwh=350, avg_power_w=15, network_type="fiber"),
+# NodeProfile(name="node-5", cpu_cores=0.65, ram_gb=1.2, carbon_intensity_gco2_kwh=250, avg_power_w=15, network_type="fiber"),
+# NodeProfile(name="node-6", cpu_cores=0.6, ram_gb=1.0, carbon_intensity_gco2_kwh=200, avg_power_w=15, network_type="fiber"),
+# ]
 # NETWORK_TYPE = "homo"
 
 # Simulation settings
-NUM_REQUESTS = 100          # requests per run
+NUM_REQUESTS = 500        # requests per run
 MS_PER_100_MFLOPS = 6.0     # compute cost calibration
 SEED = 42
 MAX_CONCURRENT = 1          # crucial for transfer‑trap breakthrough
