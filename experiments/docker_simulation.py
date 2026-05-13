@@ -50,7 +50,7 @@ def run_mode(
     arrival_rate: float,
     seed: int,
     results_dir: Path,
-    ms_per_100_mflops: float = 6.0,
+    ms_per_100_mflops: float = 3,
     use_docker: bool = False,
 ) -> RunSummary:
     run_id = f"{mode.value}"

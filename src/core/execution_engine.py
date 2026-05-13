@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import logging
 import random
 import time
@@ -25,9 +26,9 @@ class SimConfig:
     arrival_rate_rps: float = 3.0          # average requests per second
     num_requests:     int   = 50           # total inferences to simulate
 
-    max_concurrent_per_node: int = 1
+    max_concurrent_per_node: int = 2
 
-    ms_per_100_mflops: float = 25.0
+    ms_per_100_mflops: float = 3
 
     # Scheduling mode
     mode: SchedulingMode = SchedulingMode.TANS_GREEN
@@ -78,7 +79,10 @@ class CarbonEdgeEngine:
             mode=config.mode.value,
         )
 
-        rep_nodes = [nodes[0], nodes[3], nodes[5]]
+        if len(self._nodes) == 3:
+            rep_nodes = self._nodes               
+        else:
+            rep_nodes = [self._nodes[0], self._nodes[3], self._nodes[5]]
         self._partitions: List[Partition] = self._partitioner.partition(
             rep_nodes, num_partitions=3
         )
@@ -95,7 +99,10 @@ class CarbonEdgeEngine:
         # Global stats
         self._completed = 0
         self._failed    = 0
-
+        self._node_log_path = self._cfg.results_dir / f"{self._cfg.run_id}_node_usage.csv"
+        self._node_log_file = open(self._node_log_path, "w", newline="")
+        self._node_writer = csv.writer(self._node_log_file)
+        self._node_writer.writerow(["request_id", "partition_id", "node"])
     # ------------------------------------------------------------------
     # Public: run
     # ------------------------------------------------------------------
@@ -121,6 +128,7 @@ class CarbonEdgeEngine:
 
         summary = self._logger.finalize(sim_time_ms=self._env.now)
         self._print_summary(summary)
+        self._node_log_file.close()
         return self._logger
 
     # ------------------------------------------------------------------
@@ -148,6 +156,8 @@ class CarbonEdgeEngine:
     def _inference_pipeline(self, req: InferenceRequest):
         sched_t0 = time.perf_counter()
         decisions = self._scheduler.schedule(req.partitions)
+        for d in decisions:
+            self._node_writer.writerow([req.req_id, d.partition_id, d.selected_node])
         sched_oh_ms = (time.perf_counter() - sched_t0) * 1000
 
         total_carbon = 0.0
@@ -333,11 +343,11 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmpdir:
         cfg = SimConfig(
             arrival_rate_rps=5.0,
-            max_concurrent_per_node=1,
+            max_concurrent_per_node=2,
             num_requests=30,
             mode=SchedulingMode.TANS_GREEN,
             results_dir=Path(tmpdir),
-            ms_per_100_mflops=5.0,  
+            ms_per_100_mflops=3.0,  
         )
         engine = CarbonEdgeEngine(nodes=nodes, config=cfg)
         logger = engine.run()

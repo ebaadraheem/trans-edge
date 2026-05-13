@@ -39,7 +39,7 @@ MODE_WEIGHTS: Dict[SchedulingMode, ModeWeights] = {
     SchedulingMode.PERFORMANCE: ModeWeights(0.25, 0.25, 0.30, 0.15, 0.05),
     SchedulingMode.BALANCED:    ModeWeights(0.20, 0.20, 0.15, 0.15, 0.30),
     SchedulingMode.GREEN:       ModeWeights(0.15, 0.15, 0.10, 0.10, 0.50),
-    SchedulingMode.TANS_GREEN:  ModeWeights(0.10, 0.10, 0.10, 0.10, 0.60),
+    SchedulingMode.TANS_GREEN:  ModeWeights(0.15, 0.15, 0.10, 0.10, 0.50),
 }
 
 # ---------------------------------------------------------------------------
@@ -124,12 +124,6 @@ class SchedulingDecision:
 # ---------------------------------------------------------------------------
 
 class TANSScheduler:
-    """
-    Transfer-Aware Node Selection Scheduler.
-    """
-
-    LATENCY_THRESHOLD_MS = 100.0  
-    LOAD_THRESHOLD       = 0.80   
 
     def __init__(
         self,
@@ -275,9 +269,6 @@ class TANSScheduler:
                     }
             mbps = bandwidth_map.get(net_type, 100.0)
             transfer_delay_ms = ((actual_transfer_mb * 8.0) / mbps) * 1000.0
-
-            # if live.current_load > self.LOAD_THRESHOLD or live.net_latency_ms > self.LATENCY_THRESHOLD_MS:
-            #     continue
 
             # Resource sufficiency check
             cpu_avail = node.cpu_cores * (1.0 - live.current_load)
