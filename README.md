@@ -1,89 +1,484 @@
-# TRACE: Transfer-Aware Carbon-Efficient Scheduling for Partitioned Deep Neural Network Inference at the Edge
+# TRACE
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.2.1-EE4C2C.svg)](https://pytorch.org/)
-[![Docker](https://img.shields.io/badge/Docker-7.0.0-2496ED.svg)](https://www.docker.com/)
+### Transfer-Aware Carbon-Efficient Scheduling for Partitioned Deep Neural Network Inference at the Edge
 
-## Overview
-As artificial intelligence moves to the network edge, the carbon footprint of executing distributed deep learning inference has become a critical sustainability challenge. While recent frameworks like CarbonEdge optimize for the carbon intensity of compute nodes, they contain a critical blind spot: **they ignore the massive energy and latency costs of moving data across heterogeneous networks (e.g., 4G, 5G, WiFi, Fiber)**.
+![Python](https://img.shields.io/badge/Python-3.9+-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.2.1-red)
+![Docker](https://img.shields.io/badge/Docker-7.0+-2496ED)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-This repository introduces **TRACE: Transfer-Aware Carbon-Efficient Scheduling for Partitioned Deep Neural Network Inference at the Edge**, a novel scheduling framework that jointly optimizes both **compute carbon** and **network transfer carbon** against strict latency constraints. 
+TRACE is a research-oriented simulation framework for **carbon-efficient distributed inference at the edge**.
 
-By anticipating and avoiding disastrous network transfers, the TANS scheduler proves that sustainability does not always require a performance trade-off. For lightweight models (MobileNetV2) and massive-transfer models (VGG16), `tans_green` achieves up to **50% carbon reduction while simultaneously achieving the lowest system latency**.
+Traditional edge inference systems often optimize only compute execution cost while ignoring the hidden environmental and performance impact caused by **moving intermediate tensors across networks**.
 
-## Key Features
-* **Transfer-Aware Carbon Modeling:** Calculates total emissions by combining local compute power, grid carbon intensity (gCO2/kWh), and the specific energy coefficient of the network medium (kWh/GB).
-* **Heterogeneous Edge Simulation:** Built-in support for simulating varied edge environments (0.4 to 1.0 CPU cores, 4G to Fiber networks, 200 to 620 gCO2/kWh) using Docker and SimPy.
-* **Layer-by-Layer Profiling:** Automated PyTorch hooks to extract FLOPs, parameter counts, and intermediate tensor transfer sizes (MB) for any CNN architecture.
-* **Multiple Scheduling Baselines:** Compare the proposed `tans_green` mode directly against standard `performance`, `balanced`, and compute-only `green` modes.
+TRACE introduces a **Transfer-Aware scheduling strategy** that jointly optimizes:
 
-## Repository Structure
+* Compute carbon emissions
+* Network transfer carbon emissions
+* Resource utilization
+* End-to-end inference latency
+
+The framework partitions deep neural networks across heterogeneous edge devices and dynamically schedules execution using multiple optimization strategies.
+
+---
+
+# Motivation
+
+As AI workloads move toward edge environments, sustainability becomes increasingly important.
+
+Existing approaches typically optimize:
+
+* Compute utilization
+* Node-level carbon intensity
+* Execution throughput
+
+However, large intermediate tensor transfers across networks (4G, 5G, WiFi, Fiber) can introduce:
+
+* Additional energy consumption
+* Higher latency
+* Hidden carbon costs
+
+TRACE addresses this gap by explicitly modeling **transfer-aware carbon scheduling**.
+
+---
+
+# Features
+
+## Transfer-Aware Carbon Modeling
+
+Estimate total emissions using:
+
+```
+Total Carbon =
+Compute Carbon
++
+Network Transfer Carbon
+```
+
+Carbon estimation includes:
+
+* Node power consumption
+* Grid carbon intensity
+* Data transfer size
+* Network energy coefficients
+* Infrastructure efficiency (PUE)
+
+---
+
+## Dynamic Scheduling Modes
+
+TRACE supports multiple execution policies.
+
+| Mode          | Goal                                   |
+| ------------- | -------------------------------------- |
+| `performance` | Minimize latency                       |
+| `balanced`    | Balance performance and sustainability |
+| `green`       | Optimize compute-side carbon           |
+| `tans_green`  | Optimize compute + transfer carbon     |
+
+---
+
+## Heterogeneous Edge Simulation
+
+Simulate distributed environments with:
+
+* Variable CPU capacity
+* Variable RAM
+* Different network technologies
+* Different regional carbon intensities
+
+Supported network types:
+
+* 4G LTE
+* 5G
+* WiFi
+* Fiber
+
+---
+
+## Layer-Level DNN Partitioning
+
+Automatically partition models using:
+
+* Layer FLOPs
+* Memory usage
+* Tensor transfer size
+* Device capability scores
+
+---
+
+## Docker-Based Execution
+
+Optional real container deployment for:
+
+* Multi-node execution
+* Distributed inference testing
+* Reproducible experiments
+
+---
+
+# Repository Structure
+
 ```text
-├── requirements.txt           # Python dependencies (SimPy, Docker, PyTorch, Pandas)
+TRACE/
+│
+├── requirements.txt
+│
 ├── data/
-│   ├── generate_profile.py    # PyTorch script to profile model layers (FLOPs, MBs)
-│   └── resnet50_profile.csv   # Example output profile
+│   └── generate_profile.py
+│
 ├── docker/
-│   └── edge-node/             # Dockerized Flask inference server for edge simulation
+│   └── edge-node/
 │       ├── Dockerfile
 │       ├── model_service.py
 │       └── requirements.txt
+│
 ├── experiments/
-│   └── docker_simulation.py   # Main entry point to run multi-mode simulations
-└── src/
-    ├── core/
-    │   ├── carbon_monitor.py  # Tracks real-time/static grid CI and network transfer costs
-    │   ├── execution_engine.py# SimPy engine managing concurrent requests and routing
-    │   ├── model_partitioner.py # Layer-wise model splitting algorithm
-    │   └── task_scheduler.py  # Min-Max normalized TANS routing algorithm
-    └── utils/
-        ├── docker_manager.py  # Handles lifecycle of Docker edge containers
-        └── metrics_logger.py  # Aggregates latency, throughput, and carbon telemetry
+│   ├── docker_simulation.py
+│   ├── rate_sweep.py
+│   ├── analyze_node_usage.py
+│   ├── plot_all_node_usage.py
+│   ├── plot_per_node_usage.py
+│   └── plot_sweep.py
+│
+├── src/
+│   ├── core/
+│   │   ├── carbon_monitor.py
+│   │   ├── execution_engine.py
+│   │   ├── model_partitioner.py
+│   │   └── task_scheduler.py
+│   │
+│   └── utils/
+│       ├── docker_manager.py
+│       └── metrics_logger.py
+│
+└── paper.pdf
 ```
 
-## Getting Started
+---
 
-### Prerequisites
-* Python 3.9+
-* Docker Desktop / Engine (required for real container simulation)
-* PyTorch 2.2+ (for model profiling)
+# Architecture
 
-### Installation
+```text
+Model Profile
+      ↓
+Model Partitioner
+      ↓
+Scheduler
+      ↓
+Execution Engine
+      ↓
+Carbon Monitor
+      ↓
+Metrics Logger
+```
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/ebaadraheem/TRACE.git
-   cd TRACE
-   ```
-2. Install dependencies:
-  ```bash
-  pip install -r requirements.txt
-  ```
-3. Pull the base PyTorch Docker image:
-   ``` bash
-   docker pull pytorch/pytorch:latest
-   ```
-### Usage
-1. Profile a Model
-Before running a simulation, generate a layer-wise profile of your target model (e.g., ResNet50, MobileNetV2, or VGG16). This calculates the compute cost and output tensor sizes.
-  ``` bash
-  python data/generate_profile.py
-  ```
-2. Run the SimulationThe main experiment script evaluates all four scheduling modes (performance, balanced, green, tans_green) and logs detailed telemetry to the results/ directory.  To run a quick simulated test (no Docker overhead):
-   ``` bash
-   python experiments/docker_simulation.py --requests 50 --rate 2.5
-   ```
- To run a full hardware simulation using live Docker containers:
-  ``` bash
-  python experiments/docker_simulation.py --docker --requests 50 --rate 2.5
-  ```
-3. Analyze Results
-The framework outputs detailed .csv files per inference and aggregated summary files. You can use these to map the Pareto frontiers of Latency vs. Carbon Reduction.
-  ``` bash
-  cat results/*_summary.csv
-  ```
-### Experimental Findings
-Our extensive evaluation across multiple node configurations reveals three distinct behaviors:
-1. The Lightweight Winner (MobileNetV2): Network transfer is the primary bottleneck. By minimizing network hops, TANS achieves both the lowest latency and highest carbon reduction (~50%).
-2. The Classic Trade-off (ResNet-50): Compute is the primary bottleneck. TANS behaves like a traditional green scheduler, accepting higher latency to find greener nodes, resulting in moderate carbon reduction.
-3. The Catastrophe Saver (VGG16): Massive intermediate data makes transfer a fatal bottleneck. TANS actively avoids sending heavy data over slow/dirty networks, securing a ~51% carbon reduction and preventing massive latency spikes caused by baseline algorithms.
+---
+
+# Installation
+
+## Clone Repository
+
+```bash
+git clone https://github.com/ebaadraheem/TRACE.git
+cd TRACE
+```
+
+---
+
+## Create Virtual Environment
+
+Linux / macOS:
+
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+Windows:
+
+```powershell
+python -m venv venv
+venv\Scripts\activate
+```
+
+---
+
+## Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+# Running Simulations
+
+## Quick Validation Run
+
+```bash
+python experiments/docker_simulation.py --quick
+```
+
+---
+
+## Standard Simulation
+
+```bash
+python experiments/docker_simulation.py
+```
+
+---
+
+## Run Specific Scheduling Mode
+
+```bash
+python experiments/docker_simulation.py --mode tans_green
+```
+
+Available modes:
+
+```text
+performance
+balanced
+green
+tans_green
+```
+
+---
+
+## Customize Workload
+
+```bash
+python experiments/docker_simulation.py \
+  --requests 100 \
+  --rate 2 \
+  --seed 42
+```
+
+Parameters:
+
+| Argument     | Description                  |
+| ------------ | ---------------------------- |
+| `--requests` | Number of inference requests |
+| `--rate`     | Arrival rate                 |
+| `--mode`     | Scheduling strategy          |
+| `--docker`   | Enable container execution   |
+| `--results`  | Output directory             |
+| `--seed`     | Random seed                  |
+
+---
+
+# Docker Execution
+
+Enable real distributed inference:
+
+```bash
+python experiments/docker_simulation.py --docker
+```
+
+This launches:
+
+```text
+Edge Node Containers
+↓
+Distributed Requests
+↓
+Metrics Collection
+↓
+Carbon Analysis
+```
+
+---
+
+# Experiment Workflow
+
+## Run Simulations
+
+```bash
+python experiments/docker_simulation.py
+```
+
+---
+
+## Analyze Results
+
+```bash
+python experiments/analyze_node_usage.py
+```
+
+---
+
+## Generate Visualizations
+
+```bash
+python experiments/plot_all_node_usage.py
+```
+
+or
+
+```bash
+python experiments/plot_sweep.py
+```
+
+---
+
+# Carbon Model
+
+TRACE estimates emissions using:
+
+```text
+Carbon =
+(Energy × CarbonIntensity × PUE)
++
+(TransferEnergy × CarbonIntensity)
+```
+
+Where:
+
+* Energy → compute energy
+* CarbonIntensity → gCO₂/kWh
+* PUE → infrastructure overhead
+* TransferEnergy → network transfer energy
+
+---
+
+# Example Research Questions
+
+* How much carbon is caused by tensor transfers?
+* Can lower carbon also reduce latency?
+* How should models be partitioned?
+* Which network type produces the lowest total emissions?
+
+---
+
+# Results
+
+Expected observations:
+
+* Lower total emissions under `tans_green`
+* Reduced unnecessary transfers
+* Improved latency for transfer-heavy models
+* Better scheduling decisions in heterogeneous environments
+
+---
+
+# Requirements
+
+Core packages:
+
+```text
+simpy==4.1.1
+docker==7.0.0
+requests==2.31.0
+pandas==2.2.1
+numpy==1.26.4
+torch==2.2.1
+torchvision==0.17.1
+```
+
+---
+
+# Paper
+
+The repository includes:
+
+```text
+paper.pdf
+```
+
+for implementation and research details.
+
+---
+
+
+Steps:
+
+1. Fork repository
+2. Create feature branch
+3. Commit changes
+4. Open pull request
+
+---
+
+# License
+
+This project is licensed under the **MIT License**.
+
+---
+
+# Citation
+
+```bibtex
+@software{trace2026,
+  title={TRACE: Transfer-Aware Carbon-Efficient Scheduling for Partitioned Deep Neural Network Inference at the Edge},
+  year={2026}
+}
+```
+
+---
+
+Built for sustainable and transfer-aware edge AI research.
+
+> [!WARNING]
+> **Research Status — Preprint / Simulation Only**
+>
+> TRACE is currently an **early-stage research prototype evaluated only in simulated environments**.
+>
+> The current results are based on **simulation experiments and modeled assumptions**, not deployment on physical edge infrastructure or production systems.
+>
+> The repository is released to:
+>
+> * Share methodology and implementation details
+> * Enable reproducibility and discussion
+> * Serve as a starting point for future research
+> * Collect feedback before real-world validation
+>
+> **Please do not use this repository as evidence of production performance, deployment readiness, or validated environmental impact claims.**
+>
+> The authors currently **do not recommend operational use or citing quantitative results as established benchmarks** until the framework is validated on:
+>
+> * Real edge hardware
+> * Real network environments
+> * Physical power measurements
+> * End-to-end deployment experiments
+>
+> At this stage, TRACE should be treated as a:
+>
+> **Research preprint + simulation framework + exploratory baseline implementation**
+>
+> rather than a finalized system.
+
+---
+
+# Limitations
+
+Current limitations include:
+
+* Simulation-only evaluation
+* Simplified carbon and transfer energy assumptions
+* No validation on heterogeneous real-world devices
+* No measured hardware power traces
+* No production-scale benchmarking
+* Network behavior may not reflect real deployment conditions
+
+Future work will focus on:
+
+1. Validation on physical edge devices
+2. Real power and energy measurements
+3. Deployment across heterogeneous clusters
+4. Expanded scheduler evaluation
+5. Statistical robustness analysis
+6. Comparison against established baselines
+
+---
+
+# Citation Guidance
+
+If you use this repository academically, please cite it as:
+
+> **a simulation framework / exploratory preprint**
+>
+> and not as validated production evidence.
+
+If building on this work, we recommend independently reproducing and validating all results.
